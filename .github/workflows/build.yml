@@ -24,7 +24,7 @@ jobs:
         python3 -c '
         with open("src/utfsjis.c", "r") as f:
             c = f.read()
-        target = "char *sjis_char2unicode(const char *_src, int *dst)\n{"
+        target = "char *sjis_char2unicode(const char *_src, int *dst)\n{\n\tconst uint8_t *src = (const uint8_t*)_src;"
         replacement = """#include <iconv.h>
         char *sjis_char2unicode(const char *_src, int *dst)
         {
@@ -45,6 +45,7 @@ jobs:
         \t\t\t}
         \t\t}
         \t}"""
+        assert target in c, "target not found!"
         c = c.replace(target, replacement, 1)
         with open("src/utfsjis.c", "w") as f:
             f.write(c)
