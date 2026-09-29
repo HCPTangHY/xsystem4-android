@@ -50,6 +50,22 @@ jobs:
         with open("src/utfsjis.c", "w") as f:
             f.write(c)
         '
+        cd ../..
+
+        python3 -c '
+        with open("xsystem4/src/text.c", "r") as f:
+            c = f.read()
+        c = c.replace(
+            "#define DEFAULT_FONT_GOTHIC \"fonts/VL-Gothic-Regular.ttf\"",
+            "#define DEFAULT_FONT_GOTHIC \"fonts/HanaMinA.ttf\""
+        )
+        target = "static struct font *get_font(unsigned face)\n{\n\tif (face > 255) {"
+        replacement = "static struct font *get_font(unsigned face)\n{\n\treturn font_ttf[FONT_MINCHO];\n\tif (face > 255) {"
+        assert target in c, "target in text.c not found"
+        c = c.replace(target, replacement, 1)
+        with open("xsystem4/src/text.c", "w") as f:
+            f.write(c)
+        '
 
     - name: Native Build
       run: ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME ./build-shared-libs.sh
@@ -64,12 +80,3 @@ jobs:
       with:
         name: xsystem4-chinese-debug-apk
         path: project/app/build/outputs/apk/debug/app-debug.apk
-
-    - name: Create Release
-      uses: softprops/action-gh-release@v2
-      with:
-        tag_name: v1.0.0-gbk
-        name: xsystem4-android GBK 汉化支持版
-        files: project/app/build/outputs/apk/debug/app-debug.apk
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
