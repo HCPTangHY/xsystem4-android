@@ -20,37 +20,59 @@ jobs:
     - name: Apply GBK Patch
       run: |
         cd $GITHUB_WORKSPACE/xsystem4/subprojects/libsys4
+
+        # 1. Generate static GBK to UCS2 lookup table (bypassing Android bionic iconv limitations)
+        python3 -c '
+        with open("src/gbk_table.h", "w") as f:
+            f.write("#include <stdint.h>\nstatic const uint16_t gbk_to_ucs2[126][190] = {\n")
+            for b1 in range(0x81, 0xFF):
+                row = []
+                for b2 in range(0x40, 0xFF):
+                    if b2 == 0x7F:
+                        continue
+                    try:
+                        char = bytes([b1, b2]).decode("gbk")
+                        row.append(f"0x{ord(char):04x}")
+                    except UnicodeDecodeError:
+                        row.append("0x0000")
+                f.write("  { " + ", ".join(row) + " },\n")
+            f.write("};\n")
+        '
+
+        # 2. Expand 2-byte boundary
         sed -i 's/#define SJIS_2BYTE(b) ( ((b) & 0xe0) == 0x80 || ((b) & 0xe0) == 0xe0 )/#define SJIS_2BYTE(b) (((uint8_t)(b) >= 0x81 \&\& (uint8_t)(b) <= 0xfe))/' include/system4/utfsjis.h
+
+        # 3. Patch utfsjis.c to directly use the static GBK lookup table
         python3 -c '
         with open("src/utfsjis.c", "r") as f:
             c = f.read()
         target = "char *sjis_char2unicode(const char *_src, int *dst)\n{\n\tconst uint8_t *src = (const uint8_t*)_src;"
-        replacement = """#include <iconv.h>
+        replacement = """#include "gbk_table.h"
+
         char *sjis_char2unicode(const char *_src, int *dst)
         {
         \tconst uint8_t *src = (const uint8_t*)_src;
-        \tif (*src >= 0x81 && *src <= 0xfe && *(src+1) >= 0x40 && *(src+1) <= 0xfe && *(src+1) != 0x7f) {
-        \t\tstatic iconv_t cd = (iconv_t)-1;
-        \t\tif (cd == (iconv_t)-1) cd = iconv_open("UTF-32LE", "GBK");
-        \t\tif (cd != (iconv_t)-1) {
-        \t\t\tchar in_bytes[2] = { (char)*src, (char)*(src+1) };
-        \t\t\tchar *in_ptr = in_bytes;
-        \t\t\tsize_t in_left = 2;
-        \t\t\tuint32_t out_code = 0;
-        \t\t\tchar *out_ptr = (char*)&out_code;
-        \t\t\tsize_t out_left = sizeof(out_code);
-        \t\t\tif (iconv(cd, &in_ptr, &in_left, &out_ptr, &out_left) != (size_t)-1) {
-        \t\t\t\t*dst = out_code;
-        \t\t\t\treturn (char*)src + 2;
-        \t\t\t}
+        \tif (*src <= 0x7f) {
+        \t\t*dst = *src;
+        \t\treturn (char*)src + 1;
+        \t}
+        \tuint8_t b1 = *src;
+        \tuint8_t b2 = *(src + 1);
+        \tif (b1 >= 0x81 && b1 <= 0xfe && b2 >= 0x40 && b2 <= 0xfe && b2 != 0x7f) {
+        \t\tint col = b2 - 0x40 - (b2 > 0x7f ? 1 : 0);
+        \t\tuint16_t ucs = gbk_to_ucs2[b1 - 0x81][col];
+        \t\tif (ucs != 0) {
+        \t\t\t*dst = (int)ucs;
+        \t\t\treturn (char*)src + 2;
         \t\t}
         \t}"""
-        assert target in c, "target not found!"
+        assert target in c, "target in utfsjis.c not found"
         c = c.replace(target, replacement, 1)
         with open("src/utfsjis.c", "w") as f:
             f.write(c)
         '
 
+        # 4. Patch text.c to bypass AFA.fnl bitmap font and force HanaMinA TTF
         cd $GITHUB_WORKSPACE/xsystem4
         python3 -c '
         with open("src/text.c", "r") as f:
