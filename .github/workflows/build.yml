@@ -7,14 +7,48 @@ jobs:
 
     env:
       ABI_NAMES: arm64-v8a armeabi-v7a x86_64
+      ANDROID_API_LEVEL: 28
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v4
       with:
         submodules: recursive
 
     - name: Install Deps
-      run: sudo apt install ninja-build
+      run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+    - name: Apply GBK Patch
+      run: |
+        cd xsystem4/subprojects/libsys4
+        sed -i 's/#define SJIS_2BYTE(b) ( ((b) & 0xe0) == 0x80 || ((b) & 0xe0) == 0xe0 )/#define SJIS_2BYTE(b) (((uint8_t)(b) >= 0x81 \&\& (uint8_t)(b) <= 0xfe))/' include/system4/utfsjis.h
+        python3 -c '
+        with open("src/utfsjis.c", "r") as f:
+            c = f.read()
+        target = "char *sjis_char2unicode(const char *_src, int *dst)\n{"
+        replacement = """#include <iconv.h>
+        char *sjis_char2unicode(const char *_src, int *dst)
+        {
+        \tconst uint8_t *src = (const uint8_t*)_src;
+        \tif (*src >= 0x81 && *src <= 0xfe && *(src+1) >= 0x40 && *(src+1) <= 0xfe && *(src+1) != 0x7f) {
+        \t\tstatic iconv_t cd = (iconv_t)-1;
+        \t\tif (cd == (iconv_t)-1) cd = iconv_open("UTF-32LE", "GBK");
+        \t\tif (cd != (iconv_t)-1) {
+        \t\t\tchar in_bytes[2] = { (char)*src, (char)*(src+1) };
+        \t\t\tchar *in_ptr = in_bytes;
+        \t\t\tsize_t in_left = 2;
+        \t\t\tuint32_t out_code = 0;
+        \t\t\tchar *out_ptr = (char*)&out_code;
+        \t\t\tsize_t out_left = sizeof(out_code);
+        \t\t\tif (iconv(cd, &in_ptr, &in_left, &out_ptr, &out_left) != (size_t)-1) {
+        \t\t\t\t*dst = out_code;
+        \t\t\t\treturn (char*)src + 2;
+        \t\t\t}
+        \t\t}
+        \t}"""
+        c = c.replace(target, replacement, 1)
+        with open("src/utfsjis.c", "w") as f:
+            f.write(c)
+        '
 
     - name: Native Build
       run: ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME ./build-shared-libs.sh
@@ -22,15 +56,19 @@ jobs:
     - name: App Build
       run: |
         cd project
-        echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > keystore.jks
-        JAVA_HOME=$JAVA_HOME_17_X64 ./gradlew assembleRelease
-      env:
-        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        ./gradlew assembleDebug
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@v4
       with:
-        path: project/app/build/outputs/apk/release/app-release.apk
-        archive: false
+        name: xsystem4-chinese-debug-apk
+        path: project/app/build/outputs/apk/debug/app-debug.apk
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: v1.0.0-gbk
+        name: xsystem4-android GBK 汉化支持版
+        files: project/app/build/outputs/apk/debug/app-debug.apk
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
