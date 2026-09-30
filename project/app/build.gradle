@@ -18,10 +18,16 @@ android {
         targetSdkVersion 34
         // So that stripReleaseDebugSymbols task works
         ndkPath System.getenv("ANDROID_NDK_HOME")
-        versionCode 2
-        versionName "1.0.7" + gitRevision()
+        versionCode 10
+        versionName "1.0.8" + gitRevision()
     }
     signingConfigs {
+        debug {
+            storeFile file("${System.getProperty('user.home')}/.android/debug.keystore")
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
         release {
             storeFile rootProject.file('keystore.jks')
             storePassword System.getenv('KEYSTORE_PASSWORD')
