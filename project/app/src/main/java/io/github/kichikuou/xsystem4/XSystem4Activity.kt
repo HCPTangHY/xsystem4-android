@@ -51,9 +51,6 @@ class XSystem4Activity : SDLActivity() {
             cursorView?.setImageBitmap(cursorBitmapDragging)
             val width = mSurface?.width?.toFloat() ?: resources.displayMetrics.widthPixels.toFloat()
             val height = mSurface?.height?.toFloat() ?: resources.displayMetrics.heightPixels.toFloat()
-            val normX = (cursorX / width).coerceIn(0f, 1f)
-            val normY = (cursorY / height).coerceIn(0f, 1f)
-            SDLActivity.onNativeTouch(0, 0, MotionEvent.ACTION_DOWN, normX, normY, 1.0f)
             SDLActivity.onNativeMouse(1, MotionEvent.ACTION_DOWN, cursorX, cursorY, false)
         }
     }
@@ -199,9 +196,6 @@ class XSystem4Activity : SDLActivity() {
                     SDLActivity.onNativeMouse(0, MotionEvent.ACTION_HOVER_MOVE, cursorX, cursorY, false)
 
                     if (isDragging) {
-                        val normX = (cursorX / width).coerceIn(0f, 1f)
-                        val normY = (cursorY / height).coerceIn(0f, 1f)
-                        SDLActivity.onNativeTouch(0, 0, MotionEvent.ACTION_MOVE, normX, normY, 1.0f)
                         SDLActivity.onNativeMouse(1, MotionEvent.ACTION_MOVE, cursorX, cursorY, false)
                     }
                 } else if (pointerCount == 2) {
@@ -226,26 +220,17 @@ class XSystem4Activity : SDLActivity() {
                 val normY = (cursorY / height).coerceIn(0f, 1f)
 
                 if (isDragging) {
-                    SDLActivity.onNativeTouch(0, 0, MotionEvent.ACTION_UP, normX, normY, 1.0f)
                     SDLActivity.onNativeMouse(0, MotionEvent.ACTION_UP, cursorX, cursorY, false)
                     isDragging = false
                     cursorView?.setImageBitmap(cursorBitmapNormal)
                 } else if (maxPointers == 1 && !hasMoved && dist < 14f && duration < 320L) {
-                    // Strictly stationary tap = Click
-                    SDLActivity.onNativeTouch(0, 0, MotionEvent.ACTION_DOWN, normX, normY, 1.0f)
-                    cursorView?.postDelayed({
-                        SDLActivity.onNativeTouch(0, 0, MotionEvent.ACTION_UP, normX, normY, 1.0f)
-                    }, 40L)
+                    // Strictly stationary tap = Click (Mouse only, no duplicate touch event)
                     SDLActivity.onNativeMouse(1, MotionEvent.ACTION_DOWN, cursorX, cursorY, false)
                     cursorView?.postDelayed({
                         SDLActivity.onNativeMouse(0, MotionEvent.ACTION_UP, cursorX, cursorY, false)
                     }, 40L)
                 } else if (maxPointers == 2 && !hasMoved && dist < 20f && duration < 350L) {
-                    // Two-finger tap = Right Click / Cancel
-                    SDLActivity.onNativeTouch(0, 0, MotionEvent.ACTION_DOWN, 0f, 0f, 1.0f)
-                    cursorView?.postDelayed({
-                        SDLActivity.onNativeTouch(0, 0, MotionEvent.ACTION_UP, 0f, 0f, 1.0f)
-                    }, 40L)
+                    // Two-finger tap = Right Click / Cancel (Mouse only)
                     SDLActivity.onNativeMouse(2, MotionEvent.ACTION_DOWN, cursorX, cursorY, false)
                     cursorView?.postDelayed({
                         SDLActivity.onNativeMouse(0, MotionEvent.ACTION_UP, cursorX, cursorY, false)
