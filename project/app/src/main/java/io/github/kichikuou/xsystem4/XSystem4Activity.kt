@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.os.Process
 import android.view.InputDevice
 import android.view.MotionEvent
+import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.RelativeLayout
 import org.libsdl.app.SDLActivity
@@ -74,11 +75,22 @@ class XSystem4Activity : SDLActivity() {
 
             cursorView = ImageView(this).apply {
                 setImageBitmap(bitmap)
-                layoutParams = RelativeLayout.LayoutParams(size, size)
+                layoutParams = ViewGroup.LayoutParams(size, size)
+                elevation = 9999f
+                translationZ = 9999f
                 x = 100f
                 y = 100f
             }
-            mLayout?.addView(cursorView)
+            val decorView = window.decorView as? ViewGroup
+            if (decorView != null) {
+                decorView.addView(cursorView)
+            } else {
+                mLayout?.addView(cursorView)
+            }
+            cursorView?.bringToFront()
+            window.decorView.post {
+                cursorView?.bringToFront()
+            }
         } catch (e: Exception) {
             android.util.Log.e("XSystem4", "initVirtualCursor failed", e)
         }
@@ -88,6 +100,7 @@ class XSystem4Activity : SDLActivity() {
         cursorView?.apply {
             this.x = x
             this.y = y
+            bringToFront()
         }
     }
 
