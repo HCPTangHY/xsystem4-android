@@ -7,6 +7,8 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.Process
 import android.view.InputDevice
 import android.view.MotionEvent
@@ -27,6 +29,9 @@ class XSystem4Activity : SDLActivity() {
     }
 
     private var cursorView: ImageView? = null
+    private var cursorBitmapNormal: Bitmap? = null
+    private var cursorBitmapDragging: Bitmap? = null
+
     private var cursorX = -1f
     private var cursorY = -1f
     private var touchDownX = 0f
@@ -35,8 +40,23 @@ class XSystem4Activity : SDLActivity() {
     private var lastTouchY = 0f
     private var touchDownTime = 0L
     private var maxPointers = 1
+    private var hasMoved = false
     private var isDragging = false
     private var lastTwoFingerY = 0f
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val longPressRunnable = Runnable {
+        if (!hasMoved && maxPointers == 1) {
+            isDragging = true
+            cursorView?.setImageBitmap(cursorBitmapDragging)
+            val width = mSurface?.width?.toFloat() ?: resources.displayMetrics.widthPixels.toFloat()
+            val height = mSurface?.height?.toFloat() ?: resources.displayMetrics.heightPixels.toFloat()
+            val normX = (cursorX / width).coerceIn(0f, 1f)
+            val normY = (cursorY / height).coerceIn(0f, 1f)
+            SDLActivity.onNativeTouch(0, 0, MotionEvent.ACTION_DOWN, normX, normY, 1.0f)
+            SDLActivity.onNativeMouse(1, MotionEvent.ACTION_DOWN, cursorX, cursorY, false)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -45,36 +65,43 @@ class XSystem4Activity : SDLActivity() {
         initVirtualCursor()
     }
 
+    private fun createCursorBitmap(fillColor: Int, strokeColor: Int): Bitmap {
+        val size = 48
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+        val path = Path().apply {
+            moveTo(0f, 0f)
+            lineTo(0f, 36f)
+            lineTo(10f, 26f)
+            lineTo(18f, 42f)
+            lineTo(24f, 38f)
+            lineTo(16f, 22f)
+            lineTo(28f, 22f)
+            close()
+        }
+
+        paint.style = Paint.Style.FILL
+        paint.color = fillColor
+        canvas.drawPath(path, paint)
+
+        paint.style = Paint.Style.STROKE
+        paint.color = strokeColor
+        paint.strokeWidth = 3f
+        canvas.drawPath(path, paint)
+
+        return bitmap
+    }
+
     private fun initVirtualCursor() {
         try {
-            val size = 48
-            val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-            val canvas = Canvas(bitmap)
-            val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-
-            val path = Path().apply {
-                moveTo(0f, 0f)
-                lineTo(0f, 36f)
-                lineTo(10f, 26f)
-                lineTo(18f, 42f)
-                lineTo(24f, 38f)
-                lineTo(16f, 22f)
-                lineTo(28f, 22f)
-                close()
-            }
-
-            paint.style = Paint.Style.FILL
-            paint.color = Color.WHITE
-            canvas.drawPath(path, paint)
-
-            paint.style = Paint.Style.STROKE
-            paint.color = Color.BLACK
-            paint.strokeWidth = 3f
-            canvas.drawPath(path, paint)
+            cursorBitmapNormal = createCursorBitmap(Color.WHITE, Color.BLACK)
+            cursorBitmapDragging = createCursorBitmap(Color.BLACK, Color.WHITE)
 
             cursorView = ImageView(this).apply {
-                setImageBitmap(bitmap)
-                layoutParams = ViewGroup.LayoutParams(size, size)
+                setImageBitmap(cursorBitmapNormal)
+                layoutParams = ViewGroup.LayoutParams(48, 48)
                 elevation = 9999f
                 translationZ = 9999f
                 x = 100f
@@ -118,6 +145,7 @@ class XSystem4Activity : SDLActivity() {
             cursorX = width / 2f
             cursorY = height / 2f
             updateCursor(cursorX, cursorY)
+            SDLActivity.onNativeMouse(0, MotionEvent.ACTION_HOVER_MOVE, cursorX, cursorY, false)
         }
 
         when (action) {
@@ -128,9 +156,13 @@ class XSystem4Activity : SDLActivity() {
                 lastTouchY = touchDownY
                 touchDownTime = System.currentTimeMillis()
                 maxPointers = 1
+                hasMoved = false
                 isDragging = false
+                mainHandler.removeCallbacks(longPressRunnable)
+                mainHandler.postDelayed(longPressRunnable, 350L)
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
+                mainHandler.removeCallbacks(longPressRunnable)
                 if (pointerCount > maxPointers) {
                     maxPointers = pointerCount
                 }
@@ -150,25 +182,27 @@ class XSystem4Activity : SDLActivity() {
                     lastTouchX = curX
                     lastTouchY = curY
 
+                    val dist = hypot((curX - touchDownX).toDouble(), (curY - touchDownY).toDouble()).toFloat()
+                    if (dist > 14f) {
+                        hasMoved = true
+                        if (!isDragging) {
+                            mainHandler.removeCallbacks(longPressRunnable)
+                        }
+                    }
+
                     val sensitivity = 1.3f
                     cursorX = (cursorX + dx * sensitivity).coerceIn(0f, width)
                     cursorY = (cursorY + dy * sensitivity).coerceIn(0f, height)
                     updateCursor(cursorX, cursorY)
 
-                    // Always forward mouse hover motion to native layer so tooltips and hover info trigger
+                    // Always keep mouse position synchronized for hover inspection
                     SDLActivity.onNativeMouse(0, MotionEvent.ACTION_HOVER_MOVE, cursorX, cursorY, false)
 
-                    val duration = System.currentTimeMillis() - touchDownTime
-                    val dist = hypot((curX - touchDownX).toDouble(), (curY - touchDownY).toDouble()).toFloat()
-                    val normX = (cursorX / width).coerceIn(0f, 1f)
-                    val normY = (cursorY / height).coerceIn(0f, 1f)
-
-                    if (!isDragging && duration > 260L && dist > 25f) {
-                        isDragging = true
-                        SDLActivity.onNativeTouch(0, 0, MotionEvent.ACTION_DOWN, normX, normY, 1.0f)
-                    }
                     if (isDragging) {
+                        val normX = (cursorX / width).coerceIn(0f, 1f)
+                        val normY = (cursorY / height).coerceIn(0f, 1f)
                         SDLActivity.onNativeTouch(0, 0, MotionEvent.ACTION_MOVE, normX, normY, 1.0f)
+                        SDLActivity.onNativeMouse(1, MotionEvent.ACTION_MOVE, cursorX, cursorY, false)
                     }
                 } else if (pointerCount == 2) {
                     val midY = (event.getY(0) + event.getY(1)) / 2f
@@ -182,8 +216,10 @@ class XSystem4Activity : SDLActivity() {
                 }
             }
             MotionEvent.ACTION_POINTER_UP -> {
+                mainHandler.removeCallbacks(longPressRunnable)
             }
             MotionEvent.ACTION_UP -> {
+                mainHandler.removeCallbacks(longPressRunnable)
                 val duration = System.currentTimeMillis() - touchDownTime
                 val dist = hypot((event.x - touchDownX).toDouble(), (event.y - touchDownY).toDouble()).toFloat()
                 val normX = (cursorX / width).coerceIn(0f, 1f)
@@ -191,9 +227,11 @@ class XSystem4Activity : SDLActivity() {
 
                 if (isDragging) {
                     SDLActivity.onNativeTouch(0, 0, MotionEvent.ACTION_UP, normX, normY, 1.0f)
+                    SDLActivity.onNativeMouse(0, MotionEvent.ACTION_UP, cursorX, cursorY, false)
                     isDragging = false
-                } else if (maxPointers == 1 && duration < 300L && dist < 45f) {
-                    // Tap = Left Click: dispatch both native touch and mouse button event
+                    cursorView?.setImageBitmap(cursorBitmapNormal)
+                } else if (maxPointers == 1 && !hasMoved && dist < 14f && duration < 320L) {
+                    // Strictly stationary tap = Click
                     SDLActivity.onNativeTouch(0, 0, MotionEvent.ACTION_DOWN, normX, normY, 1.0f)
                     cursorView?.postDelayed({
                         SDLActivity.onNativeTouch(0, 0, MotionEvent.ACTION_UP, normX, normY, 1.0f)
@@ -202,7 +240,7 @@ class XSystem4Activity : SDLActivity() {
                     cursorView?.postDelayed({
                         SDLActivity.onNativeMouse(0, MotionEvent.ACTION_UP, cursorX, cursorY, false)
                     }, 40L)
-                } else if (maxPointers == 2 && duration < 350L && dist < 60f) {
+                } else if (maxPointers == 2 && !hasMoved && dist < 20f && duration < 350L) {
                     // Two-finger tap = Right Click / Cancel
                     SDLActivity.onNativeTouch(0, 0, MotionEvent.ACTION_DOWN, 0f, 0f, 1.0f)
                     cursorView?.postDelayed({
@@ -213,7 +251,11 @@ class XSystem4Activity : SDLActivity() {
                         SDLActivity.onNativeMouse(0, MotionEvent.ACTION_UP, cursorX, cursorY, false)
                     }, 40L)
                 }
+
+                // Continuously re-latch hover coordinates after touch release so tooltip stays up
+                SDLActivity.onNativeMouse(0, MotionEvent.ACTION_HOVER_MOVE, cursorX, cursorY, false)
                 maxPointers = 1
+                hasMoved = false
             }
         }
         return true
@@ -230,6 +272,7 @@ class XSystem4Activity : SDLActivity() {
     }
 
     override fun onDestroy() {
+        mainHandler.removeCallbacksAndMessages(null)
         try {
             // Let SDL stop and join its native thread before terminating the game process.
             super.onDestroy()
@@ -256,4 +299,3 @@ class XSystem4Activity : SDLActivity() {
         return super.onUnhandledMessage(command, param)
     }
 }
-// build run trigger 1790755797
