@@ -155,6 +155,9 @@ class XSystem4Activity : SDLActivity() {
                     cursorY = (cursorY + dy * sensitivity).coerceIn(0f, height)
                     updateCursor(cursorX, cursorY)
 
+                    // Always forward mouse hover motion to native layer so tooltips and hover info trigger
+                    SDLActivity.onNativeMouse(0, MotionEvent.ACTION_HOVER_MOVE, cursorX, cursorY, false)
+
                     val duration = System.currentTimeMillis() - touchDownTime
                     val dist = hypot((curX - touchDownX).toDouble(), (curY - touchDownY).toDouble()).toFloat()
                     val normX = (cursorX / width).coerceIn(0f, 1f)
@@ -190,23 +193,25 @@ class XSystem4Activity : SDLActivity() {
                     SDLActivity.onNativeTouch(0, 0, MotionEvent.ACTION_UP, normX, normY, 1.0f)
                     isDragging = false
                 } else if (maxPointers == 1 && duration < 300L && dist < 45f) {
-                    // Tap = Left Click: inject native touch event at virtual cursor position
+                    // Tap = Left Click: dispatch both native touch and mouse button event
                     SDLActivity.onNativeTouch(0, 0, MotionEvent.ACTION_DOWN, normX, normY, 1.0f)
                     cursorView?.postDelayed({
                         SDLActivity.onNativeTouch(0, 0, MotionEvent.ACTION_UP, normX, normY, 1.0f)
-                    }, 60L)
+                    }, 40L)
+                    SDLActivity.onNativeMouse(1, MotionEvent.ACTION_DOWN, cursorX, cursorY, false)
+                    cursorView?.postDelayed({
+                        SDLActivity.onNativeMouse(0, MotionEvent.ACTION_UP, cursorX, cursorY, false)
+                    }, 40L)
                 } else if (maxPointers == 2 && duration < 350L && dist < 60f) {
                     // Two-finger tap = Right Click / Cancel
-                    // Touch outside viewport triggers right click in xsystem4
                     SDLActivity.onNativeTouch(0, 0, MotionEvent.ACTION_DOWN, 0f, 0f, 1.0f)
                     cursorView?.postDelayed({
                         SDLActivity.onNativeTouch(0, 0, MotionEvent.ACTION_UP, 0f, 0f, 1.0f)
-                    }, 60L)
-                    // Also fire mouse secondary button down/up with proper state transition
+                    }, 40L)
                     SDLActivity.onNativeMouse(2, MotionEvent.ACTION_DOWN, cursorX, cursorY, false)
                     cursorView?.postDelayed({
                         SDLActivity.onNativeMouse(0, MotionEvent.ACTION_UP, cursorX, cursorY, false)
-                    }, 60L)
+                    }, 40L)
                 }
                 maxPointers = 1
             }
