@@ -186,12 +186,22 @@ class XSystem4Activity : SDLActivity() {
                 if (isDragging) {
                     SDLActivity.onNativeMouse(1, MotionEvent.ACTION_UP, cursorX, cursorY, false)
                     isDragging = false
-                } else if (maxPointers == 1 && duration < 250L && dist < 35f) {
-                    SDLActivity.onNativeMouse(1, MotionEvent.ACTION_DOWN, cursorX, cursorY, false)
-                    SDLActivity.onNativeMouse(1, MotionEvent.ACTION_UP, cursorX, cursorY, false)
-                } else if (maxPointers == 2 && duration < 350L && dist < 50f) {
-                    SDLActivity.onNativeMouse(2, MotionEvent.ACTION_DOWN, cursorX, cursorY, false)
-                    SDLActivity.onNativeMouse(2, MotionEvent.ACTION_UP, cursorX, cursorY, false)
+                } else if (maxPointers == 1 && duration < 300L && dist < 45f) {
+                    val clickX = cursorX
+                    val clickY = cursorY
+                    SDLActivity.onNativeMouse(0, MotionEvent.ACTION_HOVER_MOVE, clickX, clickY, false)
+                    SDLActivity.onNativeMouse(1, MotionEvent.ACTION_DOWN, clickX, clickY, false)
+                    cursorView?.postDelayed({
+                        SDLActivity.onNativeMouse(1, MotionEvent.ACTION_UP, clickX, clickY, false)
+                    }, 80L)
+                } else if (maxPointers == 2 && duration < 350L && dist < 60f) {
+                    val clickX = cursorX
+                    val clickY = cursorY
+                    SDLActivity.onNativeMouse(0, MotionEvent.ACTION_HOVER_MOVE, clickX, clickY, false)
+                    SDLActivity.onNativeMouse(2, MotionEvent.ACTION_DOWN, clickX, clickY, false)
+                    cursorView?.postDelayed({
+                        SDLActivity.onNativeMouse(2, MotionEvent.ACTION_UP, clickX, clickY, false)
+                    }, 80L)
                 }
                 maxPointers = 1
             }
