@@ -1,8 +1,5 @@
 <resources>
     <string name="app_name">xsystem4</string>
-    <string name="action_refresh">更新</string>
-    <string name="action_help">使い方</string>
-    <string name="action_install_from_zip">ZIPからインストール</string>
     <string name="action_licenses">オープンソースライセンス</string>
     <string name="choose_a_file">ファイルを選択</string>
     <string name="ok">OK</string>
@@ -26,7 +23,9 @@
             <p>5. ゲームフォルダ（例: &quot;戦国ランス&quot;）を
                   <tt>Android/data/io.github.kichikuou.xsystem4/files/</tt> にコピーします。</p>
             <p>6. 転送を終えたら、PC とデバイスの接続を解除します。</p>
-            <p>7. この画面の右上のメニューボタンをタップして「更新」を選択します。</p>
+            <p>7. ゲームライブラリに戻ると、一覧が自動で更新されます。</p>
+            <p>プレイ時間はゲームが前面にある間だけ記録されます。固定したゲームが先頭に、そのほかは最近プレイした順に表示されます。</p>
+            <p>右にスワイプすると固定・解除、左にスワイプすると削除のボタンが表示されます。ボタンをタップするか、端までスワイプして指を離すと実行します。削除する前には必ず確認画面が表示されます。</p>
         ]]>
     </string>
 </resources>

@@ -6,3 +6,4 @@
 /project/local.properties
 .gradle
 .idea
+/project/build/

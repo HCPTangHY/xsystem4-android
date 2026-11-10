@@ -1,0 +1,9 @@
+<resources>
+    <string name="library_pin">置顶</string>
+    <string name="library_unpin">取消置顶</string>
+    <string name="library_pinned">已置顶</string>
+    <string name="library_not_played">尚未游玩</string>
+    <string name="library_less_than_minute">已游玩不足 1 分钟</string>
+    <string name="library_play_minutes">已游玩 %1$d 分钟</string>
+    <string name="library_play_hours">已游玩 %1$d 小时 %2$d 分钟</string>
+</resources>

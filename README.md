@@ -15,10 +15,10 @@
 
 | 游戏 | 状态 | 说明 |
 | --- | --- | --- |
-| 兰斯7 战国兰斯（汉化版） | ✅ 可玩 | 中文文本、字体、存档、触控均已适配 |
-| 兰斯8 Rance Quest（汉化版） | ✅ 可玩 | 需本分支的资源包名识别 + TGA 解码支持 |
-| 兰斯6（汉化版） | ✅ 可玩 | |
-| 兰斯9 赫尔曼革命（汉化版） | ⚠️ 部分 | 游戏本体可玩；开场/结局动画是 ASF(WMV1+WMA2) 格式，本引擎只有 MPEG-1 解码器，**用附带脚本转码后即可正常播放**（见「开场动画」一节） |
+| 兰斯7 战国兰斯（汉化版） | 可玩 | 中文文本、字体、存档、触控均已适配 |
+| 兰斯8 Rance Quest（汉化版） | 可玩 | 需本分支的资源包名识别 + TGA 解码支持 |
+| 兰斯6（汉化版） | 可玩 | |
+| 兰斯9 赫尔曼革命（汉化版） | 可玩 | 含 ASF/WMV 开场与结局动画（内置 ffmpeg 解码） |
 | 其它 System4 游戏 | 见上游 | 日文原版按上游兼容性表；中文版可提 issue |
 
 ## 中文汉化版做了什么
@@ -72,30 +72,19 @@
 - **诊断日志**：为便于继续适配其它作品，引擎会输出少量提示日志（`HLLUSE:` 游戏用到的引擎 API 清单、
   `asset:` 资源包匹配详情、`CG:` 图像加载详情）。用 `adb logcat -s libsys4:V` 查看。
 
-## 开场动画（ASF/WMV 转码）
+## 动画支持
 
-兰斯8、兰斯9 等作品的动画（`*.alm`）是 **ASF 容器 + WMV1 视频 + WMA2 音频**，
-而本引擎的 Android 构建只带 MPEG-1（MPEG-PS）解码器 —— 这是体积与兼容性的取舍，
-自研 WMV1 解码器并不现实。
+AliceSoft 后期作品（兰斯8 Rance Quest、兰斯9 赫尔曼革命等）的动画是 **ASF 容器**，
+里面装的是 **WMV1 视频 + WMA2 音频**；早期作品则是 MPEG-PS。
 
-解决办法：用附带的脚本把动画转成 MPEG-1/MPEG-PS，**输出在原文件旁边**
-（`Opening.alm` → `Opening.mpg`）。引擎在发现原文件不是 MPEG-PS 时会**自动查找并播放**
-同名的 `.mpg`/`.mpeg`，所以游戏数据不用改动，原动画也保持完好。
+本项目的 Android 构建**内置了 ffmpeg**（`libavformat/libavcodec/libavutil/libswscale` 静态库），
+因此这些动画**开箱即播**，不需要转换、也不需要用户做任何事。
 
-```sh
-# PC 上的游戏目录（递归查找所有 .alm/.asf/.wmv）
-python tools/convert_movies.py "/path/to/ランス9/Data/Movie"
-
-# 直接转换设备上的目录（通过 adb 拉取→转换→推回，自动跳过已转换的）
-python tools/convert_movies.py --adb "/storage/emulated/0/Android/data/io.github.kichikuou.xsystem4/files/兰斯9 赫尔曼革命/Data/Movie"
-```
-
-- 需要 `ffmpeg`/`ffprobe`（Windows：`winget install Gyan.FFmpeg`）
-- 默认码率 2500k，可用 `--bitrate 4000k` 提高画质（文件更大）
-- 已经是 MPEG 的文件会被自动跳过；加 `--force` 可强制重转
-- 转码 6 分钟的 720p 动画大约需要几分钟，输出约 120MB
-
-转换后进入游戏即可看到开场动画；若没有转换，动画会被**安静跳过**（不会报错或卡住）。
+- 引擎侧：`src/movie_ffmpeg.c` 作为动画后端（`USE_FFMPEG=ON`），pl_mpeg 只作为
+  没有 ffmpeg 时的回退（那种情况只能放 MPEG-PS）
+- ffmpeg 由 `tools/build_ffmpeg_android.sh` 交叉编译，只启用播放游戏动画所需的最小集合
+  （常用容器 + 常见视频/音频解码器 + swscale），以控制包体积
+- 想要自己构建：先跑一次该脚本，或让 CI 代劳（workflow 里有对应步骤）
 
 ## 构建
 
@@ -123,23 +112,26 @@ cd project && ./gradlew build   # 生成 APK
 ### 关于补丁
 
 `xsystem4` 与 `libsys4` 是指向 **上游仓库** 的 git 子模块（本分支没有推送权限），
-因此本分支的所有引擎改动都以补丁形式存放在 `patches/`，由 CI 与本地脚本自动应用：
+因此本分支的所有引擎改动都以补丁形式存放在 `patches/`，由 CI 应用到子模块固定的上游提交上：
 
 ```
 patches/
-  0001-sengoku-rance-cn-hll.patch      # 兰斯7 汉化版 HLL 适配
-  0002-cn-engine-fixes.patch           # 编码语义拆分、资源包匹配、兰斯8 识别、动画跳过等
-  0003-anime4k.patch                   # Anime4K 着色器链（含 CNN 着色器文件）
+  0001-xsystem4-android-cn.patch   # 引擎的全部改动（中文版适配、兰斯8/9/10 支持、Anime4K、ffmpeg 动画等）
   libsys4/
-    0001-cn-encoding.patch             # 三种编码语义 + 容错文件名解析
-    0002-tga-format.patch              # TGA 图像格式支持
+    0001-libsys4-cn.patch          # 编码语义（GBK/SJIS）、容错文件名解析、TGA 格式等
 ```
 
-本地复刻 CI 的补丁流程（生成 GBK 码表 + 应用补丁 + 字体/输入补丁）：
+补丁按子模块工作区相对上游提交整体生成。CI 在应用补丁之后还会：
 
-```sh
-python android-build/apply_gbk_patch.py
-```
+- 生成 GBK 码表 `libsys4/src/gbk_table.h`、`gbk_rev_table.h`（不放进补丁）；
+- 下载 CEFFontsCJK 字体，以及 `xsystem4/fonts/NotoFallback.sources.json` 里列出的 Noto 后备字体（校验 sha256）。
+
+动画后端需要的 ffmpeg 静态库由 `tools/build_ffmpeg_android.sh` 交叉编译到 `<仓库>/ffmpeg/<abi>/`，
+引擎的 CMake 会自动探测（探测不到就回退 pl_mpeg，不会导致构建失败）。
+`build-shared-libs.sh` 会在编译原生库之前先调用它。
+
+离线构建：给 CMake 传 `-DXSYS4_DEPS_DIR=<目录>`，依赖库就从 `<目录>/src/<库名>-<版本>` 读取源码、
+`<目录>/libsndfile` 取 libsndfile，不再联网下载（libffi 需预先编译进 staging 目录）。
 
 ## 安装游戏
 

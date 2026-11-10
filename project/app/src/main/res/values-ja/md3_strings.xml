@@ -1,0 +1,15 @@
+<resources>
+    <string name="md3_library">ゲームライブラリ</string>
+    <string name="md3_import">ゲームを追加</string>
+    <string name="md3_help">使い方</string>
+    <string name="md3_licenses">オープンソースライセンス</string>
+    <string name="md3_back">戻る</string>
+    <string name="md3_got_it">閉じる</string>
+    <string name="md3_remove">削除</string>
+    <string name="md3_licenses_description">使用しているオープンソースプロジェクトです。タップするとライセンスの原文を表示します。</string>
+    <string name="md3_license_original">ライセンス原文</string>
+    <string name="md3_game_ready">タップで起動 · 右スワイプで固定 · 左スワイプで削除</string>
+    <string name="md3_game_error">起動できません · タップして詳細を表示</string>
+    <string name="md3_empty">ここから、あなたの物語が始まります</string>
+    <string name="md3_import_preparing">インポートを準備しています…</string>
+</resources>

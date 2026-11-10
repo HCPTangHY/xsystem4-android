@@ -1,32 +1,32 @@
 <resources>
     <string name="app_name">xsystem4</string>
-    <string name="action_refresh">Refresh</string>
-    <string name="action_help">Help</string>
-    <string name="action_install_from_zip">Install from ZIP</string>
-    <string name="action_licenses">Open source licenses</string>
-    <string name="choose_a_file">Choose a file</string>
-    <string name="ok">OK</string>
-    <string name="cancel">Cancel</string>
-    <string name="error">Error</string>
-    <string name="install_dialog_title">Installing…</string>
-    <string name="install_progress">Extracting %s</string>
-    <string name="toast_no_GameName">%s has no \"GameName\" field.</string>
-    <string name="toast_no_ini">There is neither \"System40.ini\" nor \"AliceStart.ini\" in %s.</string>
-    <string name="uninstall_dialog_message">Uninstall \"%s\"?</string>
-    <string name="uninstall_dialog_title">Confirm</string>
-    <string name="zip_extraction_error">Failed to extract ZIP.</string>
-    <string name="zip_no_ini">There is neither \"System40.ini\" nor \"AliceStart.ini\" in the ZIP archive.</string>
+    <string name="action_licenses">开源许可</string>
+    <string name="choose_a_file">选择游戏压缩包</string>
+    <string name="ok">确定</string>
+    <string name="cancel">取消</string>
+    <string name="error">出错了</string>
+    <string name="install_dialog_title">正在导入游戏…</string>
+    <string name="install_progress">正在解压 %1$s</string>
+    <string name="toast_no_GameName">%1$s 中没有 GameName 字段。</string>
+    <string name="toast_no_ini">%1$s 中未找到 System40.ini 或 AliceStart.ini。</string>
+    <string name="uninstall_dialog_message">确定移除「%1$s」？\n\n游戏目录及目录内的存档会一并删除。</string>
+    <string name="uninstall_dialog_title">移除游戏</string>
+    <string name="zip_extraction_error">解压失败，请检查压缩包是否完整，以及存储空间是否充足。</string>
+    <string name="zip_no_ini">压缩包中未找到 System40.ini 或 AliceStart.ini，请选择完整的游戏压缩包。</string>
     <string name="usage">
         <![CDATA[
-            <h1>How to install a game</h1>
-            <p>1. Connect the device to your computer with a USB cable.</p>
-            <p>2. On the device, tap the &quot;Charging this device via USB&quot; notification.</p>
-            <p>3. Under &quot;Use USB for,&quot; select &quot;File Transfer&quot;.</p>
-            <p>4. A file transfer window will open on your computer.</p>
-            <p>5. Copy the game folder (e.g. &quot;Sengoku Rance&quot;) into
-                  <tt>Android/data/io.github.kichikuou.xsystem4/files/</tt>.</p>
-            <p>6. When you&apos;re done, disconnect the device from your computer.</p>
-            <p>7. Tap the menu button at the upper-right of this screen, and select &quot;Refresh&quot;.</p>
+            <p><b>导入游戏</b></p>
+            <p>点按「导入游戏」，选择包含完整游戏文件的 ZIP 压缩包，等待导入完成。</p>
+            <p><b>手动复制</b></p>
+            <p>也可以通过 USB 文件传输，将整个游戏文件夹复制到设备的
+               <tt>Android/data/io.github.kichikuou.xsystem4/files/</tt>
+               目录，再返回游戏库。列表会自动刷新。</p>
+            <p><b>游戏库</b></p>
+            <p>点按游戏卡片即可启动。自动累计前台游玩时长，切到后台暂停计时。置顶游戏优先显示，其余按最近游玩排序。</p>
+            <p>右划卡片露出「置顶」按钮，点按或继续滑到底松手即可置顶；已置顶时可取消置顶。左划可移除游戏，点按按钮或滑到底后都会先弹窗确认。</p>
+            <p><b>游戏内设置</b></p>
+            <p>按返回键打开设置，可切换输入方式、画面增强和游戏速度；
+               点按「关闭菜单」或菜单外的空白区域即可收起。</p>
         ]]>
     </string>
 </resources>

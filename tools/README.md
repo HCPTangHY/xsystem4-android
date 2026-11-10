@@ -59,8 +59,8 @@ Get-Content tools\calls.txt | ForEach-Object {
 
 | 游戏 | ain 版本 | 缺失函数 | 状态 |
 |---|---|---|---|
-| 兰斯6 (CN) | ? | 无 | ✅ 正常 |
-| 战国兰斯 (Kagura CN) | 5 | SACT2 ×7 | ✅ 已修复 (patch 0001) |
+| 兰斯6 (CN) | ? | 无 | 正常 |
+| 战国兰斯 (Kagura CN) | 5 | SACT2 ×7 | 已修复 (patch 0001) |
 | 兰斯8/クエスト (CN) | ? | 待分析 | ⏳ 需要游戏文件 |
 | 兰斯IX (CN) | ? | 待分析 | ⏳ 需要游戏文件 |
 

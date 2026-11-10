@@ -1,0 +1,9 @@
+<resources>
+    <string name="library_pin">固定</string>
+    <string name="library_unpin">固定を解除</string>
+    <string name="library_pinned">固定済み</string>
+    <string name="library_not_played">未プレイ</string>
+    <string name="library_less_than_minute">プレイ時間：1 分未満</string>
+    <string name="library_play_minutes">プレイ時間：%1$d 分</string>
+    <string name="library_play_hours">プレイ時間：%1$d 時間 %2$d 分</string>
+</resources>
