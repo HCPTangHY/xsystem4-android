@@ -304,7 +304,7 @@ index 0000000..804c1f3
 +#endif /* XSYSTEM4_APEG_DECODER_H */
 diff --git a/include/apeg_vlc.h b/include/apeg_vlc.h
 new file mode 100644
-index 0000000..4bc0ef0
+index 0000000..1f3b4d2
 --- /dev/null
 +++ b/include/apeg_vlc.h
 @@ -0,0 +1,427 @@
@@ -1409,7 +1409,7 @@ index 6e76e35..1fd9203 100644
 +
  #endif /* SYSTEM4_VM_H */
 diff --git a/include/vm/page.h b/include/vm/page.h
-index 139a7ff..3570409 100644
+index 139a7ff..474f0dc 100644
 --- a/include/vm/page.h
 +++ b/include/vm/page.h
 @@ -31,9 +31,10 @@ enum page_type {
@@ -1424,7 +1424,7 @@ index 139a7ff..3570409 100644
  
  /*
   * A page is an ordered collection of variables. Pages are used to implement
-@@ -70,6 +71,10 @@ struct page {
+@@ -70,12 +71,21 @@ struct page {
  		// local-specific metadata
  		struct {
  			int struct_ptr;
@@ -1435,7 +1435,18 @@ index 139a7ff..3570409 100644
  		} local;
  		// array-specific metadata
  		struct {
-@@ -117,6 +122,7 @@ void delete_page(int slot);
+ 			int struct_type;
+ 			int rank;
+ 		} array;
++		// delegate-snapshot metadata (when index == -1)
++		struct {
++			int live_slot;
++			uint32_t live_seq;
++		} delegate;
+ 	};
+ 	int nr_vars;
+ 	union vm_value values[];
+@@ -117,6 +127,7 @@ void delete_page(int slot);
  // structs
  int alloc_struct(int no);
  void init_struct(int no, int slot);
@@ -1443,7 +1454,7 @@ index 139a7ff..3570409 100644
  void delete_struct(int no, int slot);
  void create_struct(int no, union vm_value *var);
  
-@@ -141,6 +147,7 @@ struct page *delegate_new_from_method(int obj, int fun);
+@@ -141,6 +152,7 @@ struct page *delegate_new_from_method(int obj, int fun);
  int delegate_numof(struct page *page);
  bool delegate_contains(struct page *dst, int obj, int fun);
  void delegate_erase(struct page *page, int obj, int fun);
@@ -5269,10 +5280,10 @@ index 0000000..22aafb6
 +#endif
 diff --git a/src/apeg.c b/src/apeg.c
 new file mode 100644
-index 0000000..8c94e70
+index 0000000..40c7685
 --- /dev/null
 +++ b/src/apeg.c
-@@ -0,0 +1,235 @@
+@@ -0,0 +1,231 @@
 +/* AliceSoft APEG playback (see include/apeg.h).
 + * Video decoding and YUV presentation adapted from TomorrowX6/re-xsystem4,
 + * commit 683a119d0ab2b23e0440c6f5e84e2141653e5503, src/movie_plmpeg.c.
@@ -5372,15 +5383,11 @@ index 0000000..8c94e70
 +		d->no = -1;
 +		d->archive = &apeg_sound_archive;
 +		p->sound = channel_open_archive_data(d, ASSET_SOUND, -1);
-+		if (p->sound) {
-+			channel_set_loop_count(p->sound, 1);
-+			channel_set_group(p->sound, mixer_no);
-+		}
++		if (p->sound && !channel_set_group(p->sound, mixer_no))
++			WARNING("APEG: invalid sound group %d", mixer_no);
 +	}
 +	if (!p->sound)
 +		WARNING("%s: no playable sound track", display_utf0(path));
-+	if (p->duration <= 0 && p->sound)
-+		p->duration = channel_get_time_length(p->sound);
 +	NOTICE("APEG %s: %dx%d, %d ms, video%s", display_utf0(path), p->width, p->height,
 +	       p->duration, p->sound ? " + audio" : " (silent)");
 +	free(path);
@@ -5510,7 +5517,7 @@ index 0000000..8c94e70
 +}
 diff --git a/src/apeg_decoder.c b/src/apeg_decoder.c
 new file mode 100644
-index 0000000..7a62e2c
+index 0000000..246f291
 --- /dev/null
 +++ b/src/apeg_decoder.c
 @@ -0,0 +1,675 @@
@@ -5642,7 +5649,7 @@ index 0000000..7a62e2c
 +		}
 +
 +		n += run;
-+		if (n < 0 || n >= 64) {
++		if (n >= 64) {
 +			break;
 +		}
 +
@@ -7628,10 +7635,10 @@ index a819661..b03bfb3 100644
  
  enum {
 diff --git a/src/ffi.c b/src/ffi.c
-index 17aad6c..dd4cced 100644
+index 17aad6c..25cdf7f 100644
 --- a/src/ffi.c
 +++ b/src/ffi.c
-@@ -20,11 +20,13 @@
+@@ -20,11 +20,14 @@
  #include <string.h>
  #include <ffi.h>
  #include "system4/ain.h"
@@ -7642,10 +7649,11 @@ index 17aad6c..dd4cced 100644
  #include "vm/page.h"
  #include "xsystem4.h"
 +#include "frame_profile.h"
++#include "trace_log.h"
  
  #define HLL_MAX_ARGS 64
  
-@@ -34,18 +36,28 @@ struct hll_function {
+@@ -34,18 +37,28 @@ struct hll_function {
  	unsigned int nr_args;
  	ffi_type **args;
  	ffi_type *return_type;
@@ -7676,7 +7684,7 @@ index 17aad6c..dd4cced 100644
  }
  
  /*
-@@ -292,16 +304,308 @@ static void trace_hll_call(struct ain_library *lib, struct ain_hll_function *f,
+@@ -292,16 +305,310 @@ static void trace_hll_call(struct ain_library *lib, struct ain_hll_function *f,
  }
  #endif /* TRACE_HLL */
  
@@ -7756,8 +7764,10 @@ index 17aad6c..dd4cced 100644
 +	reported_unimplemented[index + fno] = true;
 +
 +	char *sig = hll_function_prototype(f);
-+	NOTICE("Unimplemented HLL function: %s.%s -> %s",
-+	       ain->libraries[libno].name, f->name, sig);
++	WARNING("Unimplemented HLL function: %s.%s -> %s",
++	        ain->libraries[libno].name, f->name, sig);
++	trace_log("UNIMPLEMENTED HLL %s.%s -> %s",
++	          ain->libraries[libno].name, f->name, sig);
 +	free(sig);
 +}
 +
@@ -7989,7 +7999,7 @@ index 17aad6c..dd4cced 100644
  
  	void *args[HLL_MAX_ARGS];
  	void *ptrs[HLL_MAX_ARGS];
-@@ -315,6 +619,7 @@ void hll_call(int libno, int fno)
+@@ -315,6 +622,7 @@ void hll_call(int libno, int fno)
  		case AIN_REF_INT:
  		case AIN_REF_LONG_INT:
  		case AIN_REF_BOOL:
@@ -7997,7 +8007,7 @@ index 17aad6c..dd4cced 100644
  		case AIN_REF_FLOAT: {
  			// need to create pointer for immediate ref types
  			stack_ptr -= 2;
-@@ -337,17 +642,26 @@ void hll_call(int libno, int fno)
+@@ -337,17 +645,26 @@ void hll_call(int libno, int fno)
  			break;
  		case AIN_STRUCT:
  		case AIN_ARRAY_TYPE:
@@ -8026,7 +8036,7 @@ index 17aad6c..dd4cced 100644
  		default:
  			stack_ptr--;
  			args[i] = &stack[stack_ptr];
-@@ -359,7 +673,9 @@ void hll_call(int libno, int fno)
+@@ -359,7 +676,9 @@ void hll_call(int libno, int fno)
  #ifdef TRACE_HLL
  	trace_hll_call(&ain->libraries[libno], f, fun, &r, args);
  #else
@@ -8036,7 +8046,7 @@ index 17aad6c..dd4cced 100644
  #endif
  
  
-@@ -370,6 +686,7 @@ void hll_call(int libno, int fno)
+@@ -370,6 +689,7 @@ void hll_call(int libno, int fno)
  		case AIN_REF_INT:
  		case AIN_REF_LONG_INT:
  		case AIN_REF_BOOL:
@@ -8044,7 +8054,7 @@ index 17aad6c..dd4cced 100644
  		case AIN_REF_FLOAT:
  			j++;
  			break;
-@@ -378,6 +695,7 @@ void hll_call(int libno, int fno)
+@@ -378,6 +698,7 @@ void hll_call(int libno, int fno)
  			break;
  		case AIN_REF_STRUCT:
  		case AIN_REF_ARRAY_TYPE:
@@ -8052,7 +8062,7 @@ index 17aad6c..dd4cced 100644
  			heap[heap_slots[i]].page = heap_ptrs[i];
  			break;
  		case AIN_REF_FUNC_TYPE:
-@@ -398,6 +716,8 @@ void hll_call(int libno, int fno)
+@@ -398,6 +719,8 @@ void hll_call(int libno, int fno)
  	case AIN_VOID:
  		break;
  	case AIN_STRING:
@@ -8061,7 +8071,7 @@ index 17aad6c..dd4cced 100644
  		slot = heap_alloc_slot(VM_STRING);
  		heap[slot].s = r.ref;
  		stack_push(slot);
-@@ -408,6 +728,9 @@ void hll_call(int libno, int fno)
+@@ -408,6 +731,9 @@ void hll_call(int libno, int fno)
  		stack_push(*(bool*)&r);
  #pragma GCC diagnostic pop
  		break;
@@ -8071,7 +8081,7 @@ index 17aad6c..dd4cced 100644
  	default:
  		stack_push(r);
  		break;
-@@ -424,6 +747,7 @@ extern struct static_library lib_AliceLogo3;
+@@ -424,6 +750,7 @@ extern struct static_library lib_AliceLogo3;
  extern struct static_library lib_AliceLogo4;
  extern struct static_library lib_AliceLogo5;
  extern struct static_library lib_AnteaterADVEngine;
@@ -8079,7 +8089,7 @@ index 17aad6c..dd4cced 100644
  extern struct static_library lib_Array;
  extern struct static_library lib_BanMisc;
  extern struct static_library lib_Bitarray;
-@@ -507,6 +831,7 @@ extern struct static_library lib_SystemService;
+@@ -507,6 +834,7 @@ extern struct static_library lib_SystemService;
  extern struct static_library lib_SystemServiceEx;
  extern struct static_library lib_TapirEngine;
  extern struct static_library lib_Timer;
@@ -8087,7 +8097,7 @@ index 17aad6c..dd4cced 100644
  extern struct static_library lib_Toushin3Loader;
  extern struct static_library lib_vmAnime;
  extern struct static_library lib_vmArray;
-@@ -530,6 +855,15 @@ extern struct static_library lib_vmMusic;
+@@ -530,6 +858,15 @@ extern struct static_library lib_vmMusic;
  extern struct static_library lib_vmSound;
  extern struct static_library lib_vmSprite;
  extern struct static_library lib_vmString;
@@ -8103,7 +8113,7 @@ index 17aad6c..dd4cced 100644
  extern struct static_library lib_vmSurface;
  extern struct static_library lib_vmSystem;
  extern struct static_library lib_vmTimer;
-@@ -547,6 +881,7 @@ static struct static_library *static_libraries[] = {
+@@ -547,6 +884,7 @@ static struct static_library *static_libraries[] = {
  	&lib_AliceLogo4,
  	&lib_AliceLogo5,
  	&lib_AnteaterADVEngine,
@@ -8111,7 +8121,7 @@ index 17aad6c..dd4cced 100644
  	&lib_Array,
  	&lib_BanMisc,
  	&lib_Bitarray,
-@@ -600,6 +935,15 @@ static struct static_library *static_libraries[] = {
+@@ -600,6 +938,15 @@ static struct static_library *static_libraries[] = {
  	&lib_MamanyoSDemo,
  	&lib_MarmotModelEngine,
  	&lib_Math,
@@ -8127,7 +8137,7 @@ index 17aad6c..dd4cced 100644
  	&lib_MapLoader,
  	&lib_MenuMsg,
  	&lib_MonsterInfo,
-@@ -630,6 +974,7 @@ static struct static_library *static_libraries[] = {
+@@ -630,6 +977,7 @@ static struct static_library *static_libraries[] = {
  	&lib_SystemServiceEx,
  	&lib_TapirEngine,
  	&lib_Timer,
@@ -8135,7 +8145,7 @@ index 17aad6c..dd4cced 100644
  	&lib_Toushin3Loader,
  	&lib_vmAnime,
  	&lib_vmArray,
-@@ -668,21 +1013,19 @@ static ffi_type *ain_to_ffi_type(enum ain_data_type type)
+@@ -668,21 +1016,19 @@ static ffi_type *ain_to_ffi_type(enum ain_data_type type)
  		return &ffi_type_void;
  	case AIN_INT:
  	case AIN_BOOL:
@@ -8164,7 +8174,7 @@ index 17aad6c..dd4cced 100644
  	}
  }
  
-@@ -704,20 +1047,54 @@ static void link_static_library_function(struct hll_function *dst, struct ain_hl
+@@ -704,20 +1050,54 @@ static void link_static_library_function(struct hll_function *dst, struct ain_hl
  /*
   * "Link" a library that has been compiled into the xsystem4 executable.
   */
@@ -8225,7 +8235,7 @@ index 17aad6c..dd4cced 100644
  			ERROR("Too many arguments to library function: %s", ainlib->functions[i].name);
  	}
  
-@@ -763,10 +1140,53 @@ static void link_libraries(void)
+@@ -763,10 +1143,53 @@ static void link_libraries(void)
  		if (!libraries[i])
  			WARNING("Unimplemented library: %s", ain->libraries[i].name);
  	}
@@ -10444,10 +10454,10 @@ index 796a956..180550d 100644
  
  //static bool ChipmunkSpriteEngine_SP_SetCutCG(int sp_no, int cg_no, int cut_x, int cut_y, int cut_w, int cut_h);
 diff --git a/src/hll/CommonSystemData.c b/src/hll/CommonSystemData.c
-index e0115b2..6596efd 100644
+index e0115b2..edfe33d 100644
 --- a/src/hll/CommonSystemData.c
 +++ b/src/hll/CommonSystemData.c
-@@ -15,86 +15,205 @@
+@@ -15,86 +15,207 @@
   */
  
  #include <stdint.h>
@@ -10637,6 +10647,8 @@ index e0115b2..6596efd 100644
 +	loaded = NULL;
 +	ok = true;
 +out:
++	if (!ok)
++		WARNING("Corrupt CommonSystemData sidecar: %s", display_utf0(save_path));
 +	csd_free_table(loaded);
 +	free(data);
 +	return ok;
@@ -10685,7 +10697,7 @@ index e0115b2..6596efd 100644
  		return true;
  	}
  	return false;
-@@ -102,9 +221,9 @@ static bool CommonSystemData_GetDataInt(struct string *name, int *value)
+@@ -102,9 +223,9 @@ static bool CommonSystemData_GetDataInt(struct string *name, int *value)
  
  static bool CommonSystemData_GetDataFloat(struct string *name, float *value)
  {
@@ -10698,7 +10710,7 @@ index e0115b2..6596efd 100644
  		return true;
  	}
  	return false;
-@@ -112,11 +231,11 @@ static bool CommonSystemData_GetDataFloat(struct string *name, float *value)
+@@ -112,11 +233,11 @@ static bool CommonSystemData_GetDataFloat(struct string *name, float *value)
  
  static bool CommonSystemData_GetDataString(struct string *name, struct string **value)
  {
@@ -10713,7 +10725,7 @@ index e0115b2..6596efd 100644
  		return true;
  	}
  	return false;
-@@ -124,9 +243,9 @@ static bool CommonSystemData_GetDataString(struct string *name, struct string **
+@@ -124,9 +245,9 @@ static bool CommonSystemData_GetDataString(struct string *name, struct string **
  
  static bool CommonSystemData_GetDataBool(struct string *name, bool *value)
  {
@@ -11151,7 +11163,7 @@ index 0000000..f4b3776
 +}
 +static int kiwi_milliseconds_to_samples(int ms,int rate) { return (int)((int64_t)ms*rate/1000); }
 diff --git a/src/hll/MainEXFile.c b/src/hll/MainEXFile.c
-index 5e04388..f97f0d8 100644
+index 5e04388..d7afcbd 100644
 --- a/src/hll/MainEXFile.c
 +++ b/src/hll/MainEXFile.c
 @@ -21,17 +21,19 @@
@@ -11186,7 +11198,92 @@ index 5e04388..f97f0d8 100644
  	ex_free(ex);
  	ex = NULL;
  	free(handles);
-@@ -393,7 +396,9 @@ static bool MainEXFile_String(int handle, struct string **data)
+@@ -135,9 +138,57 @@ HLL_WARN_UNIMPLEMENTED(false, bool, MainEXFile, ReloadDebugEXFile, void);
+ /*
+  * Get handle for top-level value.
+  */
++/* %D emits SJIS digits, while CN EX node/row keys are GBK. Keep exact match
++ * authoritative and only translate SJIS numeric pairs on a miss. */
++static char *ex_key_sjis_digits_to_gbk(const char *src)
++{
++	if (ain->version < 11)
++		return NULL;
++	char *path = xstrdup(src);
++	bool changed = false;
++	for (size_t i = 0; path[i];) {
++		unsigned char c = path[i], next = path[i+1];
++		if (c == 0x82 && next >= 0x4f && next <= 0x58) {
++			path[i] = 0xa3;
++			path[i+1] = 0xb0 + next - 0x4f;
++			changed = true;
++			i += 2;
++		} else if (c >= 0x81 && c <= 0xfe && next >= 0x40 && next != 0x7f) {
++			i += 2;
++		} else {
++			i++;
++		}
++	}
++	if (!changed) {
++		free(path);
++		return NULL;
++	}
++	return path;
++}
++
++static int ex_row_at_string_key_cn(struct ex_table *t, const char *key)
++{
++	int row = ex_row_at_string_key(t, key);
++	if (row >= 0)
++		return row;
++	char *alt = ex_key_sjis_digits_to_gbk(key);
++	if (!alt)
++		return -1;
++	row = ex_row_at_string_key(t, alt);
++	free(alt);
++	return row;
++}
++
+ static int MainEXFile_Handle(struct string *name)
+ {
+ 	struct ex_value *v = ex_get(ex, name->text);
++	if (!v) {
++		char *alt = ex_key_sjis_digits_to_gbk(name->text);
++		if (alt) {
++			v = ex_get(ex, alt);
++			free(alt);
++		}
++	}
+ 	return v ? v->id : 0;
+ }
+ 
+@@ -200,7 +251,7 @@ static int MainEXFile_SA2Handle(int handle, struct string *key, struct string *f
+ 	struct ex_table *t = handle_to_table(handle);
+ 	if (!t)
+ 		return 0;
+-	int row = ex_row_at_string_key(t, key->text);
++	int row = ex_row_at_string_key_cn(t, key->text);
+ 	if (row < 0)
+ 		return 0;
+ 	int col = ex_col_from_name(t, format_name->text);
+@@ -281,7 +332,7 @@ static int MainEXFile_SA2Type(int handle, struct string *key, struct string *for
+ 	struct ex_table *t = handle_to_table(handle);
+ 	if (!t)
+ 		return 0;
+-	int row = ex_row_at_string_key(t, key->text);
++	int row = ex_row_at_string_key_cn(t, key->text);
+ 	if (row < 0)
+ 		return 0;
+ 	int col = ex_col_from_name(t, format_name->text);
+@@ -342,7 +393,7 @@ static bool MainEXFile_SA2Exists(int handle, struct string *key, struct string *
+ 	struct ex_table *t = handle_to_table(handle);
+ 	if (!t)
+ 		return 0;
+-	int row = ex_row_at_string_key(t, key->text);
++	int row = ex_row_at_string_key_cn(t, key->text);
+ 	if (row < 0)
+ 		return 0;
+ 	return ex_col_from_name(t, format_name->text) >= 0;
+@@ -393,7 +444,9 @@ static bool MainEXFile_String(int handle, struct string **data)
  		return 0;
  	}
  
@@ -11197,7 +11294,7 @@ index 5e04388..f97f0d8 100644
  	return 1;
  }
  
-@@ -447,7 +452,9 @@ static bool MainEXFile_AString(int handle, int index, struct string **data)
+@@ -447,7 +500,9 @@ static bool MainEXFile_AString(int handle, int index, struct string **data)
  		return 0;
  	}
  
@@ -11208,7 +11305,7 @@ index 5e04388..f97f0d8 100644
  	return 1;
  }
  
-@@ -501,7 +508,9 @@ static bool MainEXFile_A2String(int handle, int row, int col, struct string **da
+@@ -501,7 +556,9 @@ static bool MainEXFile_A2String(int handle, int row, int col, struct string **da
  		return 0;
  	}
  
@@ -11219,7 +11316,7 @@ index 5e04388..f97f0d8 100644
  	return 1;
  }
  
-@@ -633,7 +642,9 @@ static bool MainEXFile_GetNodeName(struct string *tree_path, int index, struct s
+@@ -633,7 +690,9 @@ static bool MainEXFile_GetNodeName(struct string *tree_path, int index, struct s
  		if (v->tree->children[i].is_leaf)
  			continue;
  		if (count == (unsigned)index) {
@@ -11230,7 +11327,7 @@ index 5e04388..f97f0d8 100644
  			return true;
  		}
  		count++;
-@@ -654,7 +665,9 @@ static bool MainEXFile_GetEXName(struct string *tree_path, int index, struct str
+@@ -654,7 +713,9 @@ static bool MainEXFile_GetEXName(struct string *tree_path, int index, struct str
  		if (!v->tree->children[i].is_leaf)
  			continue;
  		if (count == (unsigned)index) {
@@ -11241,7 +11338,7 @@ index 5e04388..f97f0d8 100644
  			return true;
  		}
  		count++;
-@@ -663,51 +676,54 @@ static bool MainEXFile_GetEXName(struct string *tree_path, int index, struct str
+@@ -663,51 +724,54 @@ static bool MainEXFile_GetEXName(struct string *tree_path, int index, struct str
  	return false;
  }
  
@@ -11342,10 +11439,10 @@ index 5e04388..f97f0d8 100644
 +	    HLL_EXPORT_SIG(GetEXName, MainEXFile_GetEXName, "string,int,ref string"));
 diff --git a/src/hll/MainEXFileNew.inc b/src/hll/MainEXFileNew.inc
 new file mode 100644
-index 0000000..bb270f2
+index 0000000..7093ddd
 --- /dev/null
 +++ b/src/hll/MainEXFileNew.inc
-@@ -0,0 +1,241 @@
+@@ -0,0 +1,227 @@
 +/* Name-based MainEXFile ABI used by AIN 11+. Included after the legacy API.
 + * SPDX-License-Identifier: GPL-2.0-or-later */
 +static struct ex **ex_readers;
@@ -11387,26 +11484,12 @@ index 0000000..bb270f2
 +	struct ex *reader = MainEXNew_Reader(id);
 +	if (!reader) return NULL;
 +	struct ex_value *value = ex_get(reader, name->text);
-+	if (value || ain->version < 11) return value;
-+	/* %D emits SJIS digits, while CN EX node numbers are GBK. Keep the
-+	 * exact path authoritative and only translate numeric byte pairs on a
-+	 * miss, just as the archive lookup does. Never transcode story values. */
-+	char *path = xstrdup(name->text);
-+	bool changed = false;
-+	for (size_t i = 0; path[i];) {
-+		unsigned char c = path[i], next = path[i+1];
-+		if (c == 0x82 && next >= 0x4f && next <= 0x58) {
-+			path[i] = 0xa3;
-+			path[i+1] = 0xb0 + next - 0x4f;
-+			changed = true;
-+			i += 2;
-+		} else if (c >= 0x81 && c <= 0xfe && next >= 0x40 && next != 0x7f) {
-+			/* Preserve complete GBK characters, including their trail byte. */
-+			i += 2;
-+		} else i++;
++	if (value) return value;
++	char *alt = ex_key_sjis_digits_to_gbk(name->text);
++	if (alt) {
++		value = ex_get(reader, alt);
++		free(alt);
 +	}
-+	if (changed) value = ex_get(reader, path);
-+	free(path);
 +	return value;
 +}
 +
@@ -11486,7 +11569,7 @@ index 0000000..bb270f2
 +static struct string *MainEXNew_A2String(struct string *name, int row, int col, struct string *fallback, int id) { return MainEXNew_StringValue(MainEXNew_Cell(name, row, col, id), fallback); }
 +
 +static int MainEXNew_GetRowAtIntKey(struct string *name, int key, int id) { struct ex_table *t = MainEXNew_Table(name, id); return t ? ex_row_at_int_key(t, key) : -1; }
-+static int MainEXNew_GetRowAtStringKey(struct string *name, struct string *key, int id) { struct ex_table *t = MainEXNew_Table(name, id); return t ? ex_row_at_string_key(t, key->text) : -1; }
++static int MainEXNew_GetRowAtStringKey(struct string *name, struct string *key, int id) { struct ex_table *t = MainEXNew_Table(name, id); return t ? ex_row_at_string_key_cn(t, key->text) : -1; }
 +static int MainEXNew_GetColAtFormatName(struct string *name, struct string *field, int id) { struct ex_table *t = MainEXNew_Table(name, id); return t ? ex_col_from_name(t, field->text) : -1; }
 +
 +static struct ex_tree *MainEXNew_Tree(struct string *name, int id)
@@ -12451,10 +12534,10 @@ index 0000000..c5ab42a
 +	    );
 diff --git a/src/hll/PartsActivity.inc b/src/hll/PartsActivity.inc
 new file mode 100644
-index 0000000..806c4ab
+index 0000000..bd9b75c
 --- /dev/null
 +++ b/src/hll/PartsActivity.inc
-@@ -0,0 +1,993 @@
+@@ -0,0 +1,994 @@
 +/* EX-backed Activity layouts used by AIN 11+. SPDX-License-Identifier: GPL-2.0-or-later */
 +#include <stdlib.h>
 +#include <stdio.h>
@@ -13341,6 +13424,7 @@ index 0000000..806c4ab
 +	if (!data) { WARNING("Missing Activity file: %s",display_sjis0(filename->text)); return false; }
 +	struct ex *layout = ex_read(data->data,data->size);
 +	archive_free_data(data);
++	if (!layout) { WARNING("Corrupt Activity file: %s", display_sjis0(filename->text)); return false; }
 +	struct ex_tree *root = NULL;
 +	for (unsigned i = 0; i < layout->nr_blocks && !root; i++)
 +		if (layout->blocks[i].val.type == EX_TREE) root = pa_child(layout->blocks[i].val.tree,"ルートパーツ");
@@ -14874,7 +14958,7 @@ index 2d7560a..0088563 100644
  	    HLL_EXPORT(IsExistPlayingManual, SystemService_IsExistPlayingManual),
  	    HLL_EXPORT(IsExistSystemMessage, SystemService_IsExistSystemMessage),
 diff --git a/src/hll/VSFile.c b/src/hll/VSFile.c
-index c62f75b..8451bb6 100644
+index c62f75b..521b525 100644
 --- a/src/hll/VSFile.c
 +++ b/src/hll/VSFile.c
 @@ -19,16 +19,35 @@
@@ -14965,7 +15049,15 @@ index c62f75b..8451bb6 100644
  		return false;
  	}
  	return true;
-@@ -123,7 +154,14 @@ static bool VSFile_OpenForRead(struct string *filename)
+@@ -114,6 +145,7 @@ static bool VSFile_OpenForRead(struct string *filename)
+ 		return false;
+ 	uint8_t hdr[8];
+ 	if (!vsf_read(hdr, 8) || memcmp(hdr, "VSF\0\0\0\0", 8)) {
++		WARNING("Invalid VSF header in '%s'", display_utf0(filename->text));
+ 		fclose(vs_file);
+ 		vs_file = NULL;
+ 		return false;
+@@ -123,7 +155,14 @@ static bool VSFile_OpenForRead(struct string *filename)
  
  static bool VSFile_Close(void)
  {
@@ -14981,6 +15073,90 @@ index c62f75b..8451bb6 100644
  		fclose(vs_file);
  		vs_file = NULL;
  	} else {
+@@ -134,7 +173,8 @@ static bool VSFile_Close(void)
+ 
+ static bool VSFile_WriteByte(int data)
+ {
+-	vsf_write_type(VSF_BYTE);
++	if (!vsf_write_type(VSF_BYTE))
++		return false;
+ 
+ 	uint8_t b = data;
+ 	return vsf_write(&b, 1);
+@@ -142,7 +182,8 @@ static bool VSFile_WriteByte(int data)
+ 
+ static bool VSFile_WriteInt(int data)
+ {
+-	vsf_write_type(VSF_INT);
++	if (!vsf_write_type(VSF_INT))
++		return false;
+ 
+ 	uint8_t b[4];
+ 	LittleEndian_putDW(b, 0, data);
+@@ -151,7 +192,8 @@ static bool VSFile_WriteInt(int data)
+ 
+ static bool VSFile_WriteFloat(float data)
+ {
+-	vsf_write_type(VSF_FLOAT);
++	if (!vsf_write_type(VSF_FLOAT))
++		return false;
+ 
+ 	uint8_t b[4];
+ 	union {
+@@ -165,18 +207,16 @@ static bool VSFile_WriteFloat(float data)
+ 
+ static bool VSFile_WriteString(struct string *str)
+ {
+-	vsf_write_type(VSF_STRING);
+-
+-	if (fwrite(str->text, str->size+1, 1, vs_file) != 1) {
+-		WARNING("fwrite failed: %s", strerror(errno));
++	if (!vsf_write_type(VSF_STRING))
+ 		return false;
+-	}
+-	return true;
++
++	return vsf_write(str->text, str->size + 1);
+ }
+ 
+ static bool VSFile_ReadByte(int *data)
+ {
+-	vsf_read_type(VSF_BYTE);
++	if (!vsf_read_type(VSF_BYTE))
++		return false;
+ 
+ 	uint8_t b;
+ 	if (!vsf_read(&b, 1))
+@@ -187,7 +227,8 @@ static bool VSFile_ReadByte(int *data)
+ 
+ static bool VSFile_ReadInt(int *data)
+ {
+-	vsf_read_type(VSF_INT);
++	if (!vsf_read_type(VSF_INT))
++		return false;
+ 
+ 	uint8_t b[4];
+ 	if (!vsf_read(b, 4))
+@@ -198,7 +239,8 @@ static bool VSFile_ReadInt(int *data)
+ 
+ static bool VSFile_ReadFloat(float *data)
+ {
+-	vsf_read_type(VSF_FLOAT);
++	if (!vsf_read_type(VSF_FLOAT))
++		return false;
+ 
+ 	uint8_t b[4];
+ 	union {
+@@ -214,7 +256,8 @@ static bool VSFile_ReadFloat(float *data)
+ 
+ static bool VSFile_ReadString(struct string **str)
+ {
+-	vsf_read_type(VSF_STRING);
++	if (!vsf_read_type(VSF_STRING))
++		return false;
+ 
+ 	char b;
+ 	struct string *s = make_string("", 0);
 diff --git a/src/hll/hll.h b/src/hll/hll.h
 index e1fbea2..1ee5708 100644
 --- a/src/hll/hll.h
@@ -15934,7 +16110,7 @@ index e90024a..e8cc8b6 100644
  	if (mc->voice >= 0)
  		mixer_stream_set_volume(mc->voice, volume);
 diff --git a/src/page.c b/src/page.c
-index 250653f..cec02be 100644
+index 250653f..b9fac71 100644
 --- a/src/page.c
 +++ b/src/page.c
 @@ -21,6 +21,7 @@
@@ -16257,12 +16433,32 @@ index 250653f..cec02be 100644
  		page->values[i].i = -1;
  		page->values[i+1].i = -1;
  		page->values[i+2].i = 0;
-@@ -839,17 +952,12 @@ bool delegate_get(struct page *page, int i, int *obj_out, int *fun_out)
+@@ -839,17 +952,32 @@ bool delegate_get(struct page *page, int i, int *obj_out, int *fun_out)
  	if (page->type != DELEGATE_PAGE)
  		VM_ERROR("Not a delegate");
  	while (i*3 < page->nr_vars) {
 -		if (heap_get_seq(page->values[i*3].i) == page->values[i*3+2].i) {
-+		if (delegate_entry_live(page, i*3)) {
++		bool active = delegate_entry_live(page, i*3);
++		if (active && page->index == -1 && page->delegate.live_slot > 0) {
++			int live_slot = page->delegate.live_slot;
++			if (page_index_valid(live_slot) && heap_get_seq(live_slot) == page->delegate.live_seq) {
++				struct page *live = heap_get_page(live_slot);
++				active = false;
++				if (live && live->type == DELEGATE_PAGE) {
++					int obj = page->values[i*3].i;
++					int fun = page->values[i*3+1].i;
++					uint32_t seq = (uint32_t)page->values[i*3+2].i;
++					for (int j = 0; j < live->nr_vars; j += 3) {
++						if (live->values[j].i == obj && live->values[j+1].i == fun
++								&& (uint32_t)live->values[j+2].i == seq) {
++							active = true;
++							break;
++						}
++					}
++				}
++			}
++		}
++		if (active) {
  			*obj_out = page->values[i*3].i;
  			*fun_out = page->values[i*3+1].i;
  			return true;
@@ -16735,7 +16931,7 @@ index 96e0927..4db3360 100644
  				sys_message(" draw-text");
  				break;
 diff --git a/src/parts/flat.c b/src/parts/flat.c
-index bddf7b1..edff687 100644
+index bddf7b1..e991fdd 100644
 --- a/src/parts/flat.c
 +++ b/src/parts/flat.c
 @@ -24,6 +24,7 @@
@@ -16957,7 +17153,7 @@ index bddf7b1..edff687 100644
  	if (f->flat) {
  		parts_flat_free(f);
  		memset(f, 0, sizeof(struct parts_flat));
-@@ -319,6 +472,14 @@ bool parts_flat_load(struct parts *parts, struct parts_flat *f, struct string *f
+@@ -319,42 +472,47 @@ bool parts_flat_load(struct parts *parts, struct parts_flat *f, struct string *f
  
  	if (!filename)
  		return false;
@@ -16972,7 +17168,13 @@ index bddf7b1..edff687 100644
  
  	struct archive_data *dfile = asset_get_by_name(ASSET_FLAT, filename->text, NULL);
  	if (!dfile)
-@@ -330,31 +491,27 @@ bool parts_flat_load(struct parts *parts, struct parts_flat *f, struct string *f
+ 		return false;
+ 
+-	int error;
++	int error = 0;
+ 	f->flat = flat_open(dfile->data, dfile->size, &error);
+ 	if (!f->flat) {
++		WARNING("Failed to open flat '%s' (error %d)", display_sjis0(filename->text), error);
  		archive_free_data(dfile);
  		return false;
  	}
@@ -17012,7 +17214,7 @@ index bddf7b1..edff687 100644
  	for (size_t i = 0; i < f->flat->nr_libraries; i++) {
  		if (f->flat->libraries[i].type == FLAT_LIB_STOP_MOTION)
  			build_stop_motion_frames(f, (int)i);
-@@ -370,10 +527,22 @@ bool parts_flat_load(struct parts *parts, struct parts_flat *f, struct string *f
+@@ -370,10 +528,22 @@ bool parts_flat_load(struct parts *parts, struct parts_flat *f, struct string *f
  			WARNING("flat: emitter '%s': unsupported pos_track_mode %d",
  					display_sjis0(em->library_name->text), em->pos_track_mode);
  	}
@@ -17038,7 +17240,7 @@ index bddf7b1..edff687 100644
  	int w = f->flat->hdr.width;
  	int h = f->flat->hdr.height;
  	if (w <= 0 || h <= 0) {
-@@ -389,9 +558,8 @@ bool parts_flat_load(struct parts *parts, struct parts_flat *f, struct string *f
+@@ -389,9 +559,8 @@ bool parts_flat_load(struct parts *parts, struct parts_flat *f, struct string *f
  	if (w > 0 && h > 0)
  		parts_set_dims(parts, &f->common, w, h);
  
@@ -17050,7 +17252,7 @@ index bddf7b1..edff687 100644
  	return true;
  }
  
-@@ -423,7 +591,7 @@ bool parts_flat_update(struct parts_flat *f, int passed_time)
+@@ -423,7 +592,7 @@ bool parts_flat_update(struct parts_flat *f, int passed_time)
  	if (f->stopped)
  		return false;
  
@@ -17059,7 +17261,7 @@ index bddf7b1..edff687 100644
  	int delta = (int)((int64_t)f->elapsed * f->flat->hdr.fps / 1000);
  	if (!delta)
  		return false;
-@@ -795,8 +963,18 @@ bool parts_flat_emitter_get_align_offset(struct parts_flat *f, int emitter_lib_i
+@@ -795,8 +964,18 @@ bool parts_flat_emitter_get_align_offset(struct parts_flat *f, int emitter_lib_i
  // invoking `fn` with the result. The RNG is seeded from the emitter's
  // rand_seed and birth_frame, so the same birth_frame always yields the same
  // particles regardless of `age`.
@@ -17079,7 +17281,7 @@ index bddf7b1..edff687 100644
  		int birth_frame, int age, int frame_count,
  		flat_emitter_particle_fn fn, void *ud)
  {
-@@ -828,13 +1006,13 @@ void parts_flat_foreach_emitter_particle(struct parts_flat *f, int emitter_lib_i
+@@ -828,13 +1007,13 @@ void parts_flat_foreach_emitter_particle(struct parts_flat *f, int emitter_lib_i
  	vec2 parent_vel = { 0, 0 };
  	if (em->direction_type == EMITTER_DIRECTION_PARENT
  			|| em->direction_type == EMITTER_DIRECTION_PARENT_REVERSE) {
@@ -17098,7 +17300,7 @@ index bddf7b1..edff687 100644
  			parent_vel[0] = next->pos_x - cur->pos_x;
  			parent_vel[1] = next->pos_y - cur->pos_y;
  		}
-@@ -886,7 +1064,10 @@ bool PE_SetPartsFlat(int parts_no, struct string *filename, int state)
+@@ -886,7 +1065,10 @@ bool PE_SetPartsFlat(int parts_no, struct string *filename, int state)
  
  	struct parts *parts = parts_get(parts_no);
  	struct parts_flat *f = parts_get_flat(parts, state);
@@ -17110,7 +17312,7 @@ index bddf7b1..edff687 100644
  		f->needs_advance = true;
  		parts_dirty(parts);
  		return true;
-@@ -894,6 +1075,111 @@ bool PE_SetPartsFlat(int parts_no, struct string *filename, int state)
+@@ -894,6 +1076,111 @@ bool PE_SetPartsFlat(int parts_no, struct string *filename, int state)
  	return false;
  }
  
@@ -17222,7 +17424,7 @@ index bddf7b1..edff687 100644
  bool PE_IsPartsFlatEnd(int parts_no, int state)
  {
  	if (!parts_state_valid(--state))
-@@ -918,6 +1204,72 @@ int PE_GetPartsFlatCurrentFrameNumber(int parts_no, int state)
+@@ -918,6 +1205,72 @@ int PE_GetPartsFlatCurrentFrameNumber(int parts_no, int state)
  	return f->root_state->current_frame + f->pending_seek_delta;
  }
  
@@ -17295,7 +17497,7 @@ index bddf7b1..edff687 100644
  bool PE_BackPartsFlatBeginFrame(int parts_no, int state)
  {
  	if (!parts_state_valid(--state))
-@@ -975,7 +1327,9 @@ bool PE_SetPartsFlatAndStop(int parts_no, struct string *filename, int state)
+@@ -975,7 +1328,9 @@ bool PE_SetPartsFlatAndStop(int parts_no, struct string *filename, int state)
  
  	struct parts *parts = parts_get(parts_no);
  	struct parts_flat *f = parts_get_flat(parts, state);
@@ -17305,7 +17507,7 @@ index bddf7b1..edff687 100644
  	f->stopped = true;
  	return result;
  }
-@@ -1033,6 +1387,40 @@ bool PE_GoFramePartsFlat(int parts_no, int frame_no, int state)
+@@ -1033,6 +1388,40 @@ bool PE_GoFramePartsFlat(int parts_no, int frame_no, int state)
  	return true;
  }
  
@@ -21037,7 +21239,7 @@ index 0000000..185b15d
 +
 +#endif
 diff --git a/src/parts/save.c b/src/parts/save.c
-index 728b06c..c9d4271 100644
+index 728b06c..e9a615e 100644
 --- a/src/parts/save.c
 +++ b/src/parts/save.c
 @@ -14,18 +14,24 @@
@@ -21203,7 +21405,7 @@ index 728b06c..c9d4271 100644
  	case PARTS_CP_COPY_TEXT:
  		op->text.text = iarray_read_string(r);
  		op->text.x = iarray_read(r);
-@@ -366,18 +408,108 @@ static void load_parts_flash(struct iarray_reader *r, struct parts *parts,
+@@ -366,18 +408,110 @@ static void load_parts_flash(struct iarray_reader *r, struct parts *parts,
  	parts_flash_seek(flash, iarray_read(r));
  }
  
@@ -21297,6 +21499,8 @@ index 728b06c..c9d4271 100644
 +		flat_layer_state_free(flat->root_state);
 +		flat->root_state = saved;
 +	} else {
++		if (flat->flat && saved)
++			WARNING("Saved flat layer state mismatch on part %d; restarting animation", parts->no);
 +		flat_layer_state_free(saved);
 +		flat->needs_advance = true;
 +	}
@@ -21313,7 +21517,7 @@ index 728b06c..c9d4271 100644
  }
  
  static void save_parts_3dlayer(struct iarray_writer *w, struct parts_3dlayer *l)
-@@ -431,6 +563,10 @@ static void save_parts_state(struct iarray_writer *w, struct parts_state *state)
+@@ -431,6 +565,10 @@ static void save_parts_state(struct iarray_writer *w, struct parts_state *state)
  	iarray_write_rectangle(w, &state->common.hitbox);
  	iarray_write_rectangle(w, &state->common.surface_area);
  	switch (state->type) {
@@ -21324,7 +21528,7 @@ index 728b06c..c9d4271 100644
  	case PARTS_UNINITIALIZED:
  	case PARTS_MOVIE:
  	case PARTS_RECT_DETECTION:
-@@ -478,7 +614,17 @@ static void load_parts_state(struct iarray_reader *r, struct parts *parts,
+@@ -478,7 +616,17 @@ static void load_parts_state(struct iarray_reader *r, struct parts *parts,
  	iarray_read_point(r, &state->common.origin_offset);
  	iarray_read_rectangle(r, &state->common.hitbox);
  	iarray_read_rectangle(r, &state->common.surface_area);
@@ -21342,7 +21546,7 @@ index 728b06c..c9d4271 100644
  	case PARTS_UNINITIALIZED:
  	case PARTS_MOVIE:
  	case PARTS_RECT_DETECTION:
-@@ -491,7 +637,7 @@ static void load_parts_state(struct iarray_reader *r, struct parts *parts,
+@@ -491,7 +639,7 @@ static void load_parts_state(struct iarray_reader *r, struct parts *parts,
  		load_parts_cg(r, parts, &state->cg);
  		break;
  	case PARTS_TEXT:
@@ -21351,7 +21555,7 @@ index 728b06c..c9d4271 100644
  		break;
  	case PARTS_ANIMATION:
  		load_parts_animation(r, parts, &state->anim);
-@@ -500,10 +646,10 @@ static void load_parts_state(struct iarray_reader *r, struct parts *parts,
+@@ -500,10 +648,10 @@ static void load_parts_state(struct iarray_reader *r, struct parts *parts,
  		load_parts_numeral(r, parts, &state->num);
  		break;
  	case PARTS_HGAUGE:
@@ -21364,7 +21568,7 @@ index 728b06c..c9d4271 100644
  		break;
  	case PARTS_CONSTRUCTION_PROCESS:
  		load_parts_construction_process(r, parts, &state->cproc, version);
-@@ -512,12 +658,14 @@ static void load_parts_state(struct iarray_reader *r, struct parts *parts,
+@@ -512,12 +660,14 @@ static void load_parts_state(struct iarray_reader *r, struct parts *parts,
  		load_parts_flash(r, parts, &state->flash);
  		break;
  	case PARTS_FLAT:
@@ -21380,7 +21584,7 @@ index 728b06c..c9d4271 100644
  }
  
  static void save_parts_motion(struct iarray_writer *w, struct parts_motion *motion)
-@@ -634,13 +782,76 @@ static void save_parts(struct iarray_writer *w, struct parts *parts)
+@@ -634,13 +784,76 @@ static void save_parts(struct iarray_writer *w, struct parts *parts)
  	}
  
  	iarray_write_at(w, motion_count_pos, motion_count);
@@ -21458,7 +21662,15 @@ index 728b06c..c9d4271 100644
  	for (int i = 0; i < PARTS_NR_STATES; i++) {
  		load_parts_state(r, parts, &parts->states[i], version);
  	}
-@@ -677,10 +888,191 @@ static void load_parts(struct iarray_reader *r, int version)
+@@ -673,14 +886,204 @@ static void load_parts(struct iarray_reader *r, int version)
+ 	}
+ 
+ 	int motion_count = iarray_read(r);
++	if (r->error || motion_count < 0 || (unsigned)motion_count > r->size - r->pos) {
++		r->error = 1;
++		motion_count = 0;
++	}
+ 	for (int i = 0; i < motion_count; i++) {
  		struct parts_motion *motion = load_parts_motion(r);
  		parts_add_motion(parts, motion);
  	}
@@ -21507,6 +21719,11 @@ index 728b06c..c9d4271 100644
 +		parts->comment = iarray_read_string(r);
 +		parts->user_component_name = iarray_read_string(r);
 +		parts->nr_user_component_data = iarray_read(r);
++		if (r->error || parts->nr_user_component_data < 0
++				|| (unsigned)parts->nr_user_component_data > (r->size - r->pos) / 2) {
++			r->error = 1;
++			parts->nr_user_component_data = 0;
++		}
 +		parts->user_component_data=xcalloc(parts->nr_user_component_data,sizeof(*parts->user_component_data));
 +		for (int i=0;i<parts->nr_user_component_data;i++) {
 +			parts->user_component_data[i].key=iarray_read_string(r);
@@ -21650,7 +21867,7 @@ index 728b06c..c9d4271 100644
  }
  
  static void save_numeral_fonts(struct iarray_writer *w)
-@@ -693,10 +1085,12 @@ static void save_numeral_fonts(struct iarray_writer *w)
+@@ -693,10 +1096,12 @@ static void save_numeral_fonts(struct iarray_writer *w)
  		for (int i = 0; i < 12; i++) {
  			iarray_write(w, font->width[i]);
  		}
@@ -21664,7 +21881,7 @@ index 728b06c..c9d4271 100644
  {
  	parts_nr_numeral_fonts = iarray_read(r);
  	parts_numeral_fonts = xcalloc(parts_nr_numeral_fonts, sizeof(struct parts_numeral_font));
-@@ -707,11 +1101,23 @@ static void load_numeral_fonts(struct iarray_reader *r)
+@@ -707,11 +1112,23 @@ static void load_numeral_fonts(struct iarray_reader *r)
  		for (int i = 0; i < 12; i++) {
  			font->width[i] = iarray_read(r);
  		}
@@ -21689,7 +21906,7 @@ index 728b06c..c9d4271 100644
  {
  	// get parts into clean state first
  	PE_UpdateComponent(0);
-@@ -724,6 +1130,8 @@ static bool parts_engine_save(struct page **buffer, bool save_hidden)
+@@ -724,6 +1141,8 @@ static bool parts_engine_save(struct page **buffer, bool save_hidden)
  
  	iarray_write(&w, ctrl_stack.active);
  	iarray_write(&w, ctrl_stack.nr_controllers);
@@ -21698,7 +21915,7 @@ index 728b06c..c9d4271 100644
  
  	unsigned count_pos = iarray_writer_pos(&w);
  	iarray_write(&w, 0); // size of parts list
-@@ -735,6 +1143,8 @@ static bool parts_engine_save(struct page **buffer, bool save_hidden)
+@@ -735,6 +1154,8 @@ static bool parts_engine_save(struct page **buffer, bool save_hidden)
  			continue;
  		if (!parts->want_save)
  			continue;
@@ -21707,7 +21924,7 @@ index 728b06c..c9d4271 100644
  		save_parts(&w, parts);
  		count++;
  	}
-@@ -745,7 +1155,7 @@ static bool parts_engine_save(struct page **buffer, bool save_hidden)
+@@ -745,7 +1166,7 @@ static bool parts_engine_save(struct page **buffer, bool save_hidden)
  		delete_page_vars(*buffer);
  		free_page(*buffer);
  	}
@@ -21716,7 +21933,7 @@ index 728b06c..c9d4271 100644
  	iarray_free_writer(&w);
  	return true;
  
-@@ -753,12 +1163,34 @@ static bool parts_engine_save(struct page **buffer, bool save_hidden)
+@@ -753,12 +1174,34 @@ static bool parts_engine_save(struct page **buffer, bool save_hidden)
  
  bool PE_SaveWithoutHideParts(struct page **buffer)
  {
@@ -21753,7 +21970,7 @@ index 728b06c..c9d4271 100644
  }
  
  bool PE_Load(struct page **buffer)
-@@ -779,14 +1211,35 @@ bool PE_Load(struct page **buffer)
+@@ -779,14 +1222,35 @@ bool PE_Load(struct page **buffer)
  		return false;
  	}
  
@@ -22909,7 +23126,7 @@ index 1c57fac..67e92f7 100644
  	case SAVE_FORMAT_RSM:
  		return write_rsave_image_comments(key, path, comments);
 diff --git a/src/savedata.c b/src/savedata.c
-index 1e3fd72..52e019c 100644
+index 1e3fd72..10a7cea 100644
 --- a/src/savedata.c
 +++ b/src/savedata.c
 @@ -19,6 +19,8 @@
@@ -22921,7 +23138,7 @@ index 1e3fd72..52e019c 100644
  #include "cJSON.h"
  
  #include "system4.h"
-@@ -35,6 +37,22 @@
+@@ -35,38 +37,39 @@
  
  static int current_global;
  
@@ -22944,7 +23161,11 @@ index 1e3fd72..52e019c 100644
  #define invalid_save_data(msg, data) {					\
  		char *str = data ? cJSON_Print(data) : strdup("NULL");	\
  		if (!str) str = strdup("PRINTING FAILED");		\
-@@ -45,28 +63,13 @@ static int current_global;
+-		WARNING("Invalid save data (%d): " msg ": %s", current_global, data); \
++		WARNING("Invalid save data (%d): " msg ": %s", current_global, str); \
+ 		free(str);						\
+ 	}
+ 
  int save_json(const char *filename, cJSON *json)
  {
  	char *path = savedir_path(filename);
@@ -22978,7 +23199,16 @@ index 1e3fd72..52e019c 100644
  }
  
  cJSON *load_json(const char *filename)
-@@ -115,12 +118,16 @@ static int32_t add_value_to_gsave(enum ain_data_type type, union vm_value val, s
+@@ -77,6 +80,8 @@ cJSON *load_json(const char *filename)
+ 	if (!json)
+ 		return NULL;
+ 	cJSON *root = cJSON_Parse(json);
++	if (!root)
++		WARNING("Failed to parse JSON save file: %s", display_utf0(filename));
+ 	free(json);
+ 	return root;
+ }
+@@ -115,12 +120,16 @@ static int32_t add_value_to_gsave(enum ain_data_type type, union vm_value val, s
  	switch (type) {
  	case AIN_VOID:
  	case AIN_INT:
@@ -22996,7 +23226,7 @@ index 1e3fd72..52e019c 100644
  	case AIN_STRING:
  		return gsave_add_string(save, heap[val.i].s);
  	case AIN_STRUCT:
-@@ -152,6 +159,7 @@ static int32_t add_value_to_gsave(enum ain_data_type type, union vm_value val, s
+@@ -152,6 +161,7 @@ static int32_t add_value_to_gsave(enum ain_data_type type, union vm_value val, s
  			}
  			return gsave_add_record(save, &rec);
  		}
@@ -23004,7 +23234,16 @@ index 1e3fd72..52e019c 100644
  	case AIN_ARRAY_TYPE:
  		{
  			struct page *page = heap_get_page(val.i);
-@@ -191,6 +199,118 @@ static int get_gsave_version(void)
+@@ -165,7 +175,7 @@ static int32_t add_value_to_gsave(enum ain_data_type type, union vm_value val, s
+ 				.dimensions = xcalloc(page->array.rank, sizeof(int32_t)),
+ 				.nr_flat_arrays = 1
+ 			};
+-			for (struct page *p = page;; p = heap_get_page(page->values[0].i)) {
++			for (struct page *p = page;; p = heap_get_page(p->values[0].i)) {
+ 				array.dimensions[p->array.rank - 1] = p->nr_vars;
+ 				if (p->array.rank == 1)
+ 					break;
+@@ -191,6 +201,118 @@ static int get_gsave_version(void)
  	return AIN_VERSION_GTE(ain, 5, 0) ? 5 : 4;
  }
  
@@ -23123,7 +23362,7 @@ index 1e3fd72..52e019c 100644
  int save_globals(const char *keyname, const char *filename, const char *group_name, int *n_out)
  {
  	int group = -1;
-@@ -224,21 +344,25 @@ int save_globals(const char *keyname, const char *filename, const char *group_na
+@@ -224,21 +346,25 @@ int save_globals(const char *keyname, const char *filename, const char *group_na
  	}
  
  	char *path = savedir_path(filename);
@@ -23152,7 +23391,7 @@ index 1e3fd72..52e019c 100644
  	gsave_free(save);
  	if (n_out)
  		*n_out = nr_vars;
-@@ -270,6 +394,7 @@ void json_load_page(struct page *page, cJSON *vars, bool call_dtors)
+@@ -270,6 +396,7 @@ void json_load_page(struct page *page, cJSON *vars, bool call_dtors)
  			page->values[i] = val;
  		i++;
  	}
@@ -23160,7 +23399,7 @@ index 1e3fd72..52e019c 100644
  }
  
  static union vm_value json_to_vm_value(enum ain_data_type type, enum ain_data_type struct_type, int array_rank, cJSON *json)
-@@ -280,6 +405,7 @@ static union vm_value json_to_vm_value(enum ain_data_type type, enum ain_data_ty
+@@ -280,6 +407,7 @@ static union vm_value json_to_vm_value(enum ain_data_type type, enum ain_data_ty
  	struct page *page;
  	switch (type) {
  	case AIN_INT:
@@ -23168,7 +23407,7 @@ index 1e3fd72..52e019c 100644
  	case AIN_BOOL:
  	case AIN_LONG_INT:
  		if (!cJSON_IsNumber(json)) {
-@@ -458,6 +584,7 @@ static struct gsave_flat_array *gsave_load_array(struct gsave *save, struct page
+@@ -458,6 +586,7 @@ static struct gsave_flat_array *gsave_load_array(struct gsave *save, struct page
  		if (data_type != flat_array->values[i].type)
  			VM_ERROR("Bad save file: unexpected array element type");
  		union vm_value val = gsave_to_vm_value(save, data_type, struct_type, array_rank, flat_array->values[i].value);
@@ -23176,7 +23415,7 @@ index 1e3fd72..52e019c 100644
  		page->values[i] = val;
  	}
  	return flat_array + 1;
-@@ -468,10 +595,14 @@ static union vm_value gsave_to_vm_value(struct gsave *save, enum ain_data_type t
+@@ -468,10 +597,14 @@ static union vm_value gsave_to_vm_value(struct gsave *save, enum ain_data_type t
  	switch (type) {
  	case AIN_VOID:
  	case AIN_INT:
@@ -23191,7 +23430,7 @@ index 1e3fd72..52e019c 100644
  	case AIN_STRING:
  		{
  			int slot = heap_alloc_slot(VM_STRING);
-@@ -503,18 +634,46 @@ static union vm_value gsave_to_vm_value(struct gsave *save, enum ain_data_type t
+@@ -503,18 +636,46 @@ static union vm_value gsave_to_vm_value(struct gsave *save, enum ain_data_type t
  				if (data_type != field_type)
  					VM_ERROR("Bad save file: structure member type mismatch");
  				union vm_value val = gsave_to_vm_value(save, data_type, struct_type, array_rank, kv->value);
@@ -24429,7 +24668,7 @@ index e1ebcd9..97e8607 100644
  }
  
 diff --git a/src/vm.c b/src/vm.c
-index f8ccd7e..1ac1b31 100644
+index f8ccd7e..d91a266 100644
 --- a/src/vm.c
 +++ b/src/vm.c
 @@ -39,6 +39,9 @@
@@ -24773,7 +25012,7 @@ index f8ccd7e..1ac1b31 100644
  
  		// copy arguments into local page
  		struct ain_function_type *dg = &ain->delegates[dg_no];
-@@ -451,12 +663,25 @@ static void delegate_call(int dg_no, int return_address)
+@@ -451,28 +663,45 @@ static void delegate_call(int dg_no, int return_address)
  		}
  
  		set_struct_page(obj);
@@ -24802,8 +25041,9 @@ index f8ccd7e..1ac1b31 100644
 +		for (int i = return_values - 1; i >= 0; i--) r[i] = stack_pop();
  		stack_pop(); // dg_index
  		stack_pop(); // dg_page
- 		for (int i = ain->delegates[dg_no].nr_variables - 1; i >= 0; i--) {
-@@ -464,15 +689,19 @@ static void delegate_call(int dg_no, int return_address)
+-		for (int i = ain->delegates[dg_no].nr_variables - 1; i >= 0; i--) {
++		for (int i = ain->delegates[dg_no].nr_arguments - 1; i >= 0; i--) {
+ 			union vm_value v = stack_pop();
  			enum ain_data_type type = ain->delegates[dg_no].variables[i].type.data;
  			switch (type) {
  			case AIN_REF_TYPE:
@@ -25212,7 +25452,7 @@ index f8ccd7e..1ac1b31 100644
  		break;
  	}
  	case DG_CALLBEGIN: { // DG_TYPE
-@@ -2331,6 +2806,18 @@ static enum opcode execute_instruction(enum opcode opcode)
+@@ -2331,6 +2806,20 @@ static enum opcode execute_instruction(enum opcode opcode)
  		// Stack before: [dg_page, arg0, ...]
  		// Stack after:  [arg0, ..., dg_page, 0(dg_index)]
  		int dg_page = stack_peek(dg->nr_arguments).i;
@@ -25226,12 +25466,14 @@ index f8ccd7e..1ac1b31 100644
 +			if (!snapshot)
 +				snapshot = alloc_page(DELEGATE_PAGE, 0, 0);
 +			snapshot->index = -1; // invocation-owned; released by delegate_call
++			snapshot->delegate.live_slot = dg_page;
++			snapshot->delegate.live_seq = heap_get_seq(dg_page);
 +			dg_page = heap_alloc_page(snapshot);
 +		}
  		for (int i = 0; i < dg->nr_arguments; i++) {
  			int pos = (stack_ptr - dg->nr_arguments) + i;
  			stack[pos-1] = stack[pos];
-@@ -2340,7 +2827,7 @@ static enum opcode execute_instruction(enum opcode opcode)
+@@ -2340,7 +2829,7 @@ static enum opcode execute_instruction(enum opcode opcode)
  
  		// XXX: If the delegate has a return value, we push a dummy value
  		//      so that DG_CALL can replace it
@@ -25240,7 +25482,7 @@ index f8ccd7e..1ac1b31 100644
  			stack_push(0);
  		}
  		break;
-@@ -2350,10 +2837,19 @@ static enum opcode execute_instruction(enum opcode opcode)
+@@ -2350,10 +2839,19 @@ static enum opcode execute_instruction(enum opcode opcode)
  		break;
  	}
  	case DG_STR_TO_METHOD: {
@@ -25262,7 +25504,7 @@ index f8ccd7e..1ac1b31 100644
  		heap_unref(str);
  		break;
  	}
-@@ -2374,13 +2870,46 @@ static enum opcode execute_instruction(enum opcode opcode)
+@@ -2374,13 +2872,46 @@ static enum opcode execute_instruction(enum opcode opcode)
  
  static void vm_execute(void)
  {
@@ -25309,7 +25551,7 @@ index f8ccd7e..1ac1b31 100644
  		opcode = get_opcode(instr_ptr);
  		opcode = execute_instruction(opcode);
  		instr_ptr += instructions[opcode].ip_inc;
-@@ -2408,6 +2937,7 @@ static void vm_free(void)
+@@ -2408,6 +2939,7 @@ static void vm_free(void)
  		// Dungeons & Dolls saves the game state in destructors of global variables
  		call_global_destructors();
  	}
@@ -25317,7 +25559,7 @@ index f8ccd7e..1ac1b31 100644
  
  	// call library exit routines
  	exit_libraries();
-@@ -2438,6 +2968,8 @@ int vm_execute_ain(struct ain *program)
+@@ -2438,6 +2970,8 @@ int vm_execute_ain(struct ain *program)
  	setjmp(reset_buf);
  
  	// initialize VM state
@@ -25326,7 +25568,7 @@ index f8ccd7e..1ac1b31 100644
  	if (!stack) {
  		stack_size = INITIAL_STACK_SIZE;
  		stack = xmalloc(INITIAL_STACK_SIZE * sizeof(union vm_value));
-@@ -2486,7 +3018,27 @@ int vm_execute_ain(struct ain *program)
+@@ -2486,7 +3020,27 @@ int vm_execute_ain(struct ain *program)
  			init_struct(ain->globals[i].type.struc, heap[0].page->values[i].i);
  	}
  
@@ -25355,7 +25597,7 @@ index f8ccd7e..1ac1b31 100644
  	return stack_pop().i;
  }
  
-@@ -2499,6 +3051,69 @@ void vm_stack_trace(void)
+@@ -2499,6 +3053,69 @@ void vm_stack_trace(void)
  	}
  }
  
@@ -25425,7 +25667,7 @@ index f8ccd7e..1ac1b31 100644
  _Noreturn void _vm_error(const char *fmt, ...)
  {
  	va_list ap;
-@@ -2512,14 +3127,37 @@ _Noreturn void _vm_error(const char *fmt, ...)
+@@ -2512,14 +3129,37 @@ _Noreturn void _vm_error(const char *fmt, ...)
  	va_start(ap, fmt);
  	vsnprintf(msg, 1024, fmt, ap);
  	va_end(ap);

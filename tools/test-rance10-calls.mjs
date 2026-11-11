@@ -31,7 +31,7 @@ struct ain_function_type { struct {int data;} return_type; int nr_arguments,nr_v
 struct program {int version,nr_structures,nr_functions,nr_delegates;size_t code_size;unsigned char *code;typeof(functions[0]) *functions;struct ain_struct *structures;struct ain_function_type *delegates;} program;
 #define ain (&program)
 enum {LOCAL_PAGE=1,STRUCT_PAGE=2,DELEGATE_PAGE=4,CLOSURE_PAGE=5};
-struct page {int type,index,nr_vars;struct {int struct_ptr,parent_page;uint32_t parent_seq,struct_seq;} local;union vm_value values[8];};struct {struct page *page;} heap[64];struct page pages[64];
+struct page {int type,index,nr_vars;union {struct {int struct_ptr,parent_page;uint32_t parent_seq,struct_seq;} local;struct {int live_slot;uint32_t live_seq;} delegate;};union vm_value values[8];};struct {struct page *page;} heap[64];struct page pages[64];
 uint32_t sequences[64];uint32_t heap_get_seq(int slot){return sequences[slot];}
 int refs[64];void heap_ref(int slot){if(slot!=-1)refs[slot]++;}
 int invocation_releases;void heap_unref(int slot){if(slot!=60)__builtin_trap();invocation_releases++;heap[slot].page=NULL;}

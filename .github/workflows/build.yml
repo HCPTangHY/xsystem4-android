@@ -89,8 +89,8 @@ jobs:
 
         # 3.5 Download CEFFontsCJK font (full GBK + full-width forms coverage)
         cd $GITHUB_WORKSPACE/xsystem4/fonts
-        curl -sL https://github.com/Partyb0ssishere/cef-fonts-cjk/releases/download/v2.25/CEFFontsCJK-Regular.ttf -o CEFFontsCJK-Regular.ttf
-        curl -sL https://raw.githubusercontent.com/Partyb0ssishere/cef-fonts-cjk/main/LICENSE -o CEFFontsCJK.license
+        curl -fsSL --retry 3 https://github.com/Partyb0ssishere/cef-fonts-cjk/releases/download/v2.25/CEFFontsCJK-Regular.ttf -o CEFFontsCJK-Regular.ttf
+        curl -fsSL --retry 3 https://raw.githubusercontent.com/Partyb0ssishere/cef-fonts-cjk/main/LICENSE -o CEFFontsCJK.license
 
         # 4. Noto fallback fonts (glyphs CEFFontsCJK lacks); the engine patch
         #    lists their sources and checksums in fonts/NotoFallback.sources.json.
@@ -102,10 +102,16 @@ jobs:
             data = urllib.request.urlopen(info["url"]).read()
             digest = hashlib.sha256(data).hexdigest()
             if digest != info["sha256"]:
-                print("WARNING: %s sha256 %s differs from %s" % (name, digest, info["sha256"]))
+                raise SystemExit("ERROR: %s sha256 %s differs from %s" % (name, digest, info["sha256"]))
             open(name, "wb").write(data)
             print("fetched", name, len(data))
         '
+
+    - name: Run Rance 10 offline regression suites
+      run: |
+        cd $GITHUB_WORKSPACE
+        RANCE10_TEST_CLANG="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/clang" \
+          node tools/test-rance10-all.mjs
 
     - name: Cache ffmpeg
       uses: actions/cache@v4

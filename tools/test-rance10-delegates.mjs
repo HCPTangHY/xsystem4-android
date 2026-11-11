@@ -42,7 +42,7 @@ union vm_value{int32_t i;float f;};
 enum page_type{GLOBAL_PAGE,LOCAL_PAGE,STRUCT_PAGE,ARRAY_PAGE,DELEGATE_PAGE,CLOSURE_PAGE};
 enum vm_pointer_type{VM_PAGE,VM_STRING};
 struct page{enum page_type type;union{int index;enum ain_data_type a_type;};
- union{struct{int struct_ptr;int parent_page;uint32_t struct_seq;uint32_t parent_seq;}local;struct{int struct_type;int rank;}array;};
+ union{struct{int struct_ptr;int parent_page;uint32_t struct_seq;uint32_t parent_seq;}local;struct{int struct_type;int rank;}array;struct{int live_slot;uint32_t live_seq;}delegate;};
  int nr_vars;union vm_value values[];};
 struct string;
 struct vm_pointer{int ref;uint32_t seq;enum vm_pointer_type type;union{struct string *s;struct page *page;};};
@@ -90,7 +90,8 @@ static int new_closure_delegate(int this_obj,int fun,int *env_out){
 /* One v12 DG_CALLBEGIN .. DG_CALL loop; returns how many entries were called. */
 static int call_all(int dg,int *obj,int *fun){
  struct page *live=heap_get_delegate_page(dg);delegate_prune(live);
- struct page *snapshot=copy_page(live);if(!snapshot)snapshot=alloc_page(DELEGATE_PAGE,0,0);snapshot->index=-1;
+ struct page *snapshot=copy_page(live);if(!snapshot)snapshot=alloc_page(DELEGATE_PAGE,0,0);
+ snapshot->index=-1;snapshot->delegate.live_slot=dg;snapshot->delegate.live_seq=heap_get_seq(dg);
  int inv=heap_alloc_page(snapshot),n=0;
  while(delegate_get(heap_get_delegate_page(inv),n,obj,fun))n++;
  heap_unref(inv);return n;}
@@ -158,6 +159,32 @@ int run_tests(void){
  int env6;int dg6=new_closure_delegate(-1,10,&env6);CHECK(env6==x);
  heap_set_page(k,delegate_clear(heap_get_delegate_page(k)));CHECK(heap[env6].ref==1);
  heap_unref(k);CHECK(heap[env6].ref==1&&call_all(dg6,&o,&f)==1);
+ /* Rance 10 Gartia Turn 4: callback #0 erasing itself still runs #1, while
+    callback #0 erasing #1 (or clearing the delegate) prevents #1 from firing
+    and still runs #2 cleanly. */
+ int m0=new_object(),m1=new_object(),m2=new_object();
+ int mdg=heap_alloc_page(delegate_new_from_method(m0,21));
+ heap_set_page(mdg,delegate_append(heap_get_delegate_page(mdg),m1,22));
+ heap_set_page(mdg,delegate_append(heap_get_delegate_page(mdg),m2,23));
+ struct page *msnap=copy_page(heap_get_delegate_page(mdg));
+ msnap->index=-1;msnap->delegate.live_slot=mdg;msnap->delegate.live_seq=heap_get_seq(mdg);
+ int minv=heap_alloc_page(msnap);
+ CHECK(delegate_get(heap_get_delegate_page(minv),0,&o,&f)&&o==m0&&f==21);
+ delegate_erase(heap_get_delegate_page(mdg),m0,21); /* self-erase */
+ delegate_erase(heap_get_delegate_page(mdg),m1,22); /* cancel sibling callback */
+ CHECK(delegate_get(heap_get_delegate_page(minv),1,&o,&f)&&o==m2&&f==23);
+ CHECK(!delegate_get(heap_get_delegate_page(minv),2,&o,&f));
+ heap_unref(minv);
+ /* Delegate.Clear mid-dispatch stops all remaining callbacks and unrefs closures. */
+ int cenv;int cdg=new_closure_delegate(-1,31,&cenv);
+ heap_set_page(cdg,delegate_append(heap_get_delegate_page(cdg),m2,32));
+ struct page *csnap=copy_page(heap_get_delegate_page(cdg));
+ csnap->index=-1;csnap->delegate.live_slot=cdg;csnap->delegate.live_seq=heap_get_seq(cdg);
+ int cinv=heap_alloc_page(csnap);
+ heap_set_page(cdg,delegate_clear(heap_get_delegate_page(cdg)));
+ CHECK(!delegate_get(heap_get_delegate_page(cinv),0,&o,&f));
+ heap_unref(cinv);CHECK(heap_get_seq(cenv)==0);
+ heap_unref(cdg);heap_unref(m0);heap_unref(m1);heap_unref(m2);
  return 0;}
 `;
 fs.writeFileSync(path.join(build,'delegates-test.c'),source);
