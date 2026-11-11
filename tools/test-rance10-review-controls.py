@@ -46,6 +46,7 @@ struct string *string_ref(struct string *s){if(!s||s->ref<1)__builtin_trap();s->
 void free_string(struct string *s){if(!s||s->ref<1)__builtin_trap();s->ref--;}
 struct string *string_dup(struct string *s){return make_string(s->text,s->size);}
 void string_append_cstr(struct string **p,const char *s,int n){struct string *q=make_string((*p)->text,(*p)->size+n);memcpy(q->text+(*p)->size,s,n);free_string(*p);*p=q;}
+void string_append(struct string **p,const struct string *b){string_append_cstr(p,b->text,b->size);}
 void string_push_back(struct string **p,int c){char s[2]={c,c>>8};string_append_cstr(p,s,c>255?2:1);}
 #define SJIS_2BYTE(c) ((unsigned char)(c)>=0x81 && (unsigned char)(c)!=0xff)
 union vm_value{int i;float f;};
@@ -84,7 +85,7 @@ static int rejects_without_changes(struct page *bad){
  CHECK(before[0].nr_text==2&&before[0].nr_voice==1&&before[1].nr_text==1);
  CHECK(before[0].text[0]==text&&before[0].voice[0]==voice&&before[0].filter[0]==filter);
  CHECK(text->ref==text_ref&&voice->ref==voice_ref&&filter->ref==filter_ref);
- CHECK(!strcmp(text->text,"first\n")&&!strcmp(voice->text,"voice-1")&&!strcmp(filter->text,"speaker"));
+ CHECK(!strcmp(text->text,"first")&&!strcmp(voice->text,"voice-1")&&!strcmp(filter->text,"speaker"));
  CHECK(!strcmp(before[1].text[0]->text,"\xB2\xE2\xCA\xD4"));
  CHECK(live_allocations==allocations);
  return 0;
@@ -95,7 +96,7 @@ int run_tests(void){
  ADVLog_AddText(line,window);ADVLog_AddNewLine();ADVLog_AddText(str("second"),window);ADVLog_AddVoice(voice,filter);
  ADVLog_AddNewPage();ADVLog_AddText(str("\xB2\xE2\xCA\xD4"),window);
  CHECK(ADVLog_GetNumofADVLog()==2&&ADVLog_GetNumofADVLogText(0)==2);
- CHECK(!strcmp(ADVLog_GetADVLogText(0,0)->text,"first\n"));
+ CHECK(!strcmp(ADVLog_GetADVLogText(0,0)->text,"first"));
  CHECK(!strcmp(ADVLog_GetADVLogVoice(0,0)->text,"voice-1"));
  CHECK(!strcmp(ADVLog_GetADVLogVoiceFilter(0,0)->text,"speaker"));
  CHECK(!ADVLog_GetADVLogText(-1,0)->size&&!ADVLog_GetADVLogText(0,99)->size);
@@ -112,13 +113,13 @@ int run_tests(void){
  CHECK(!strcmp(held_text->text,"second")&&!strcmp(held_voice->text,"voice-1")&&!strcmp(held_filter->text,"speaker"));
  free_string(held_text);free_string(held_voice);free_string(held_filter);
  CHECK(!strcmp(adv_log[1].text[0]->text,"\xB2\xE2\xCA\xD4"));
- CHECK(!strcmp(adv_log[0].text[0]->text,"first\n"));
+ CHECK(!strcmp(adv_log[0].text[0]->text,"first"));
  CHECK(!strcmp(adv_log[0].filter[0]->text,"speaker"));
  int size=saved->nr_vars;
  /* Find the voice count using the serialized terminators, not text lengths. */
- int voice_count=10;
+ int voice_count=11;
  for(int i=0;i<2;i++){while(saved->values[voice_count].i)voice_count++;voice_count++;}
- int count_offsets[]={8,9,voice_count};
+ int count_offsets[]={9,10,voice_count};
  int bad_counts[]={-1,0x7fffffff,513};
  for(int flags=0;flags<4;flags++){
   adv_log_enabled=flags&1;adv_log_new_page=flags&2;
@@ -129,7 +130,7 @@ int run_tests(void){
   saved->nr_vars=size;
   int magic=saved->values[0].i;saved->values[0].i='?';
   CHECK(!rejects_without_changes(saved));saved->values[0].i=magic;
-  saved->values[5].i=2;CHECK(!rejects_without_changes(saved));saved->values[5].i=1;
+  saved->values[5].i=3;CHECK(!rejects_without_changes(saved));saved->values[5].i=2;
   for(int i=0;i<3;i++){
    int offset=count_offsets[i],original=saved->values[offset].i;
    for(int j=0;j<3;j++){
@@ -139,14 +140,41 @@ int run_tests(void){
   }
  }
  /* An encoded empty log commits its flags, unlike the legacy empty-buffer case. */
- saved->nr_vars=9;saved->values[8].i=0;saved->values[6].i=0;saved->values[7].i=0;
+ int line_open=saved->values[8].i;
+ saved->nr_vars=10;saved->values[9].i=0;saved->values[6].i=0;saved->values[7].i=0;saved->values[8].i=0;
  CHECK(ADVLog_Load(&saved)&&!adv_log_count&&!adv_log_enabled&&!adv_log_new_page);
- saved->nr_vars=size;saved->values[8].i=2;saved->values[6].i=1;saved->values[7].i=1;
+ saved->nr_vars=size;saved->values[9].i=2;saved->values[6].i=1;saved->values[7].i=1;saved->values[8].i=line_open;
  CHECK(ADVLog_Load(&saved)&&adv_log_count==2&&adv_log_enabled&&adv_log_new_page);
  struct page *empty=NULL;CHECK(ADVLog_Load(&empty)&&!adv_log_count&&adv_log_enabled&&adv_log_new_page);
  CHECK(ADVLog_Load(&saved)&&adv_log_count==2);
  ADVLog_SetEnable(false);saved->nr_vars=0;
  CHECK(ADVLog_Load(&saved)&&!adv_log_count&&!adv_log_enabled&&adv_log_new_page);
+ /* One line output in pieces is one entry; R only ends the line, and the
+    backlog (which joins entries with "\n" itself) never sees a line break. */
+ ADVLog_SetEnable(true);ADVLog_Clear();
+ ADVLog_AddText(str("Rance"),window);ADVLog_AddText(str(" says"),window);ADVLog_AddNewLine();
+ ADVLog_AddNewLine();
+ ADVLog_AddText(str("next"),window);ADVLog_AddNewLine();
+ CHECK(ADVLog_GetNumofADVLog()==1&&ADVLog_GetNumofADVLogText(0)==2);
+ CHECK(!strcmp(ADVLog_GetADVLogText(0,0)->text,"Rance says")&&!strcmp(ADVLog_GetADVLogText(0,1)->text,"next"));
+ for(int i=0;i<2;i++){struct string *t=ADVLog_GetADVLogText(0,i);for(int k=0;k<t->size;k++)CHECK(t->text[k]!='\n');}
+ ADVLog_AddNewPage();ADVLog_AddText(str("page 2"),window);
+ CHECK(ADVLog_GetNumofADVLog()==2&&ADVLog_GetNumofADVLogText(1)==1);
+ /* Logs saved by version 1 (one entry per AddText, R kept as "\n") are rebuilt
+    into lines when loaded, so existing saves show a normal backlog. */
+ ADVLog_Clear();
+ struct adv_log_page *p=adv_log_current();
+ const char *v1[]={"first\n","sec","ond\n\n","tail"};
+ for(int i=0;i<4;i++){p->text=xrealloc(p->text,(p->nr_text+1)*sizeof(*p->text));p->text[p->nr_text++]=str(v1[i]);}
+ adv_log_line_open=false;
+ struct page *old=NULL;CHECK(ADVLog_Save(&old));
+ old->values[5].i=1;
+ for(int i=8;i<old->nr_vars-1;i++)old->values[i]=old->values[i+1];
+ old->nr_vars--;
+ CHECK(ADVLog_Load(&old)&&ADVLog_GetNumofADVLog()==1&&ADVLog_GetNumofADVLogText(0)==3);
+ CHECK(!strcmp(ADVLog_GetADVLogText(0,0)->text,"first")&&!strcmp(ADVLog_GetADVLogText(0,1)->text,"second"));
+ CHECK(!strcmp(ADVLog_GetADVLogText(0,2)->text,"tail")&&adv_log_line_open);
+ ADVLog_AddText(str(" end"),window);CHECK(!strcmp(ADVLog_GetADVLogText(0,2)->text,"tail end"));
  return 0;
 }
 '''

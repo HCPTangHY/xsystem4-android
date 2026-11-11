@@ -27,6 +27,9 @@ int errno;char *strerror(int e){(void)e;return "";}
 const char *display_utf0(const char *s){return s;}
 #define WARNING(...) ((void)0)
 static bool vs_read;static FILE *vs_file;
+/* Writes now go through the atomic helper; the path it is given is what matters here. */
+static char *vs_tmp_path,*vs_path;static bool vs_write_ok;static void vsfile_abort_write(void){vs_file=NULL;}
+FILE *atomic_file_open(const char *u,char **tmp){*tmp=(char*)"T";return file_open_utf8(u,"wb");}
 ${fn('src/hll/VSFile.c','vsfile_open')}
 struct parts {struct parts *parent;bool message_window;};
 ${fn('src/parts/render.c','parts_hidden_with_message_window')}

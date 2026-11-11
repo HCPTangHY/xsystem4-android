@@ -8,8 +8,8 @@
 
 ## 支持环境
 
-- 系统：Android 5.0（API 21）或更高
-- CPU：32 位 ARM / 64 位 ARM / 64 位 x86
+- APK 声明的最低系统：Android 5.0（API 21）；**当前 CI 原生库按 API 28 编译**，不能据此保证 Android 5–8 可运行，发布验收先以 Android 9+ 为基线。
+- CPU：`armeabi-v7a` / `arm64-v8a` / `x86_64`。各架构均需实际构建验证。
 
 ## 当前适配进度
 
@@ -18,8 +18,12 @@
 | 兰斯7 战国兰斯（汉化版） | 可玩 | 中文文本、字体、存档、触控均已适配 |
 | 兰斯8 Rance Quest（汉化版） | 可玩 | 需本分支的资源包名识别 + TGA 解码支持 |
 | 兰斯6（汉化版） | 可玩 | |
-| 兰斯9 赫尔曼革命（汉化版） | 可玩 | 含 ASF/WMV 开场与结局动画（内置 ffmpeg 解码） |
+| 兰斯9 赫尔曼革命（汉化版） | 可玩（此前适配记录） | 已接入 FFmpeg 动画后端；ASF/WMV 能否播放取决于 APK 是否实际链接 FFmpeg |
+| 兰斯10 决战（汉化版） | 适配中，非稳定支持 | 持续修复 VM、泛型数组/委托、PartsEngine 界面与输入、存读档；本地回归不等同于 Android 完整游玩验证 |
 | 其它 System4 游戏 | 见上游 | 日文原版按上游兼容性表；中文版可提 issue |
+
+兰斯6/7/8/9 的“可玩”为此前适配记录，不代表本次重新验证了完整流程或通关。
+兰斯10 的当前限制见[已知问题](#已知问题)，不要把宿主机测试通过当成真机兼容性结论。
 
 ## 中文汉化版做了什么
 
@@ -65,10 +69,11 @@
     | 拖动 | 按住并移动 |
     | 滚轮 | 双指上下滑 |
 
-- **侧边菜单**：返回键呼出，Material Design 1 风格（左侧全高抽屉、白底直角、遮罩层），
-  包含：输入方式、Anime4K 档位、修改器（开发中）、退出游戏。
-- **Anime4K 超分辨率**（实验性）：把画面经过 Anime4K CNN 着色器链放大后再缩放到屏幕。
-  菜单里可选 `关闭 / 2x (M) / 4x (M+S)`。**默认档位为 4x**；若遇到画面异常请切到"关闭"。
+- **游戏设置菜单**：返回键呼出；包含输入方式、画面增强、游戏速度、数值搜索修改器、退出游戏。
+- **画面增强**（实验性）：`关闭 / Anime4K 2x (M) / Anime4K 4x (M+S) / CuNNy2 2x（fast-NVL）`。
+  默认 Anime4K 4x；画面异常、发热或掉帧时请关闭。CuNNy2 的离线编译验证不代表真机画质/性能已验收。
+- **游戏速度**：`0.5x / 1x / 2x / 3x / 4x / 6x`。建议先在原速下确认游戏行为。
+- **修改器**：已有数值搜索/修改界面；使用前备份存档，不保证所有游戏的数据布局都适用。
 - **诊断日志**：为便于继续适配其它作品，引擎会输出少量提示日志（`HLLUSE:` 游戏用到的引擎 API 清单、
   `asset:` 资源包匹配详情、`CG:` 图像加载详情）。用 `adb logcat -s libsys4:V` 查看。
 
@@ -77,10 +82,10 @@
 AliceSoft 后期作品（兰斯8 Rance Quest、兰斯9 赫尔曼革命等）的动画是 **ASF 容器**，
 里面装的是 **WMV1 视频 + WMA2 音频**；早期作品则是 MPEG-PS。
 
-本项目的 Android 构建**内置了 ffmpeg**（`libavformat/libavcodec/libavutil/libswscale` 静态库），
-因此这些动画**开箱即播**，不需要转换、也不需要用户做任何事。
+项目提供 FFmpeg 静态库的交叉编译和自动探测（`libavformat/libavcodec/libavutil/libswscale`）。
+**只有实际链接 FFmpeg 的 APK 才支持 ASF/WMV**；依赖编译失败时构建脚本会警告并继续使用 pl_mpeg，不应仅凭 APK 构建成功判断动画已支持。
 
-- 引擎侧：`src/movie_ffmpeg.c` 作为动画后端（`USE_FFMPEG=ON`），pl_mpeg 只作为
+- 引擎侧：`xsystem4/src/movie_ffmpeg.c` 作为动画后端（`USE_FFMPEG=ON` 且依赖存在时），pl_mpeg 作为
   没有 ffmpeg 时的回退（那种情况只能放 MPEG-PS）
 - ffmpeg 由 `tools/build_ffmpeg_android.sh` 交叉编译，只启用播放游戏动画所需的最小集合
   （常用容器 + 常见视频/音频解码器 + swscale），以控制包体积
@@ -92,27 +97,54 @@ AliceSoft 后期作品（兰斯8 Rance Quest、兰斯9 赫尔曼革命等）的�
 
 ### 依赖
 
-- Linux / macOS（本分支的日常开发在 Windows 上进行，见下方说明）
-- Android SDK（Android Studio 或命令行工具）
-- Android NDK r23 或更高
-- CMake 3.21+、flex、bison、ninja
+- 建议 Linux；CI 使用 Ubuntu。Windows 本地回归可用，原生交叉编译还需要离线依赖准备。
+- JDK 17+、Android SDK（含 Platform 34）、Android NDK r23+（CI 使用 runner 提供的 NDK）
+- CMake 3.21+、Ninja、flex、bison，以及 FFmpeg 脚本所需的编译工具
 
-### 构建步骤（与上游一致）
+### 推荐：GitHub Actions 构建
+
+向主仓库推送或手动运行 [Build workflow](.github/workflows/build.yml)。它会递归检出子模块、应用补丁、
+生成 GBK 表并下载字体，再编译三个 ABI 和 Debug APK。成功后下载 `xsystem4-chinese-debug-apk` artifact。
+这不是自动发布到 Releases，也不是正式签名的发行构建。
+
+### 本地构建
+
+**干净 clone 不能直接运行原生构建脚本**：必须先应用两层补丁，并准备生成表与字体。
+已应用补丁的开发工作区不要重复应用。
+
+```sh
+git clone --recursive https://github.com/bailaiOWO/xsystem4-android.git
+cd xsystem4-android
+for p in patches/*.patch; do
+    git -C xsystem4 apply "../$p"
+done
+for p in patches/libsys4/*.patch; do
+    git -C xsystem4/subprojects/libsys4 apply "../../../$p"
+done
+```
+
+接着按 [workflow 的 Apply GBK Patch 步骤](.github/workflows/build.yml)生成 `gbk_table.h`、`gbk_rev_table.h`，
+下载 CEFFontsCJK 与 Noto 后备字体及许可证；本地执行时将 `$GITHUB_WORKSPACE` 设为仓库绝对路径，
+并跳过已经执行过的补丁应用循环。这些准备步骤不包含在 `build-shared-libs.sh` 内。
 
 ```sh
 export ANDROID_SDK_ROOT=<你的 Android SDK>
 export ANDROID_NDK_HOME=<你的 Android NDK>
-
-git clone --recursive https://github.com/bailaiOWO/xsystem4-android.git
-cd xsystem4-android
-./build-shared-libs.sh          # 编译原生库
-cd project && ./gradlew build   # 生成 APK
+export ANDROID_API_LEVEL=28    # 与当前 CI 一致；脚本单独调用默认 21
+./build-shared-libs.sh
+cd project && ./gradlew assembleDebug
 ```
+
+输出：`project/app/build/outputs/apk/debug/app-debug.apk`。构建日志须出现 `Movie backend: ffmpeg (...)`
+才能确认启用了 ASF/WMV 后端；若出现 `Movie backend: pl_mpeg`，仅支持 MPEG-PS。
 
 ### 关于补丁
 
-`xsystem4` 与 `libsys4` 是指向 **上游仓库** 的 git 子模块（本分支没有推送权限），
-因此本分支的所有引擎改动都以补丁形式存放在 `patches/`，由 CI 应用到子模块固定的上游提交上：
+`xsystem4` 与嵌套的 `libsys4` 都指向上游仓库。引擎工作区修改不会随主仓库的 commit/push 自动上传，
+必须同步进 `patches/`；不要把子模块指针改到只存在于本机的提交。
+
+当前基线：`xsystem4` 为 `04333ad689d7e517a93d58141bb214c19ba16129`，
+`libsys4` 为 `20560d4d6d41a7196bd6b8409bcbb974f9de4af0`。
 
 ```
 patches/
@@ -124,7 +156,8 @@ patches/
 补丁按子模块工作区相对上游提交整体生成。CI 在应用补丁之后还会：
 
 - 生成 GBK 码表 `libsys4/src/gbk_table.h`、`gbk_rev_table.h`（不放进补丁）；
-- 下载 CEFFontsCJK 字体，以及 `xsystem4/fonts/NotoFallback.sources.json` 里列出的 Noto 后备字体（校验 sha256）。
+- 下载 CEFFontsCJK 字体，以及 `xsystem4/fonts/NotoFallback.sources.json` 列出的 Noto 字体和许可证。
+  Noto 下载会计算 SHA-256，但当前 workflow 在不匹配时只警告，不会中止；不要把它当作强制完整性检查。
 
 动画后端需要的 ffmpeg 静态库由 `tools/build_ffmpeg_android.sh` 交叉编译到 `<仓库>/ffmpeg/<abi>/`，
 引擎的 CMake 会自动探测（探测不到就回退 pl_mpeg，不会导致构建失败）。
@@ -132,6 +165,19 @@ patches/
 
 离线构建：给 CMake 传 `-DXSYS4_DEPS_DIR=<目录>`，依赖库就从 `<目录>/src/<库名>-<版本>` 读取源码、
 `<目录>/libsndfile` 取 libsndfile，不再联网下载（libffi 需预先编译进 staging 目录）。
+
+### 上传前核对
+
+1. 将引擎修改（包括新增 `.c/.h/.inc` 和着色器）同步到引擎补丁；libsys4 单独生成补丁。
+   不要把下载的字体二进制、生成的 GBK 表、构建产物或游戏资源放入补丁。
+2. 在固定上游基线的干净目录/临时索引中应用两份补丁，确认能还原准备发布的源码。
+   仅提交父仓库中的 `xsystem4` 记录无法保存子模块未提交内容。
+3. 提交 README、补丁、修改过的测试与新增测试文件。不要上传本机路径配置、签名密钥、令牌、游戏或存档。
+4. 运行[本地回归](tools/README.md#兰斯10本地回归)，再检查对应提交的 CI 与 APK；本地通过不能替代三架构构建。
+5. 安装新 APK，检查启动、动画、触控/拖动/滚轮、存读档和关键游戏场景；使用备份存档验收。
+
+当前 workflow 使用公开的固定 **Debug** 签名，仅适合开发测试。正式发行应使用私有 Release 密钥，
+不要把现有 Debug 签名当作发行身份保证。
 
 ## 安装游戏
 
@@ -158,16 +204,47 @@ Android/data/io.github.kichikuou.xsystem4/files/战国兰斯/
 
 ## 已知问题
 
-- 兰斯9 开场动画（ASF/WMV）无法播放，目前自动跳过；要真正播放需要引入支持 ASF/WMV 的解码后端。
-- Anime4K 为实验特性：部分游戏/分辨率下可能有重影或性能下降，可在菜单里关闭。
-- 部分老游戏的 3D 部件（PartsEngine）功能上游仍未完全实现。
+### 游戏与兼容性
+
+- **兰斯10 APEG 动画没有画面解码**：当前仅读取音轨/时间轴，显示提示后可点击跳过。它与兰斯8/9的 FFmpeg 动画路径不同。
+- **兰斯10场景回顾仍待完整验收**：最近设备日志确认按钮进入脚本后因场景数为 0 退出，并非这两次点击未送达。
+  普通分组存档与完整 VM 快照保存的内容不同；不能据此断言所有存档都不保存场景回顾。
+  产生非空记录后的画面恢复、翻页、语音和退出返回尚未验收，剧情回顾末行/行距也需要屏幕实测。
+- **任务选择/跳剧情的委托修复需要长时间设备回归**：已覆盖失效委托误释放复用槽的模型，
+  但不保证所有任务链和既有存档都已无隐患，也不能恢复此前已经丢失的游戏进度。
+- **存档保护是单文件原子替换**：已覆盖写入/同步/关闭/替换失败的离线模型，不等于 Android 断电实测或多文件事务保证。
+  更新前仍应备份存档；旧档中已缺失的数组内容不能凭兼容修复还原。
+- **接口兼容仍有边界**：例如接口数组部分操作、动态 EX 数据快照和若干新 HLL 仍为受限实现。
+  这是源码限制，尚不能据此断言正常游戏流程一定触发；“导出已注册”不等于完整行为已还原。
+- **Anime4K/CuNNy2** 可能带来重影、发热或掉帧；旧作品部分引擎功能也仍受上游实现限制。
+
+### 发布与构建
+
+- 本次准备没有重建三 ABI APK，也没有完成新 APK 的设备验收；当前 CI 尚未执行 24 项本地核心回归。
+- 最低系统声明与原生 API 级别不一致、FFmpeg 失败时回退、字体校验只警告、公开 Debug 签名，详见[构建](#构建)及[支持环境](#支持环境)。
+- `collect-licenses.sh` 的应用内许可列表尚未补齐新增字体、CuNNy2 和 FFmpeg；正式分发前需完善许可证收集，
+  并核对组合分发要求。源码/资源中已有的许可文件不能当作应用内许可菜单已完整的证明。
+- 公开 [Actions 运行 37279287268](https://github.com/bailaiOWO/xsystem4-android/actions/runs/37279287268)
+  显示 2026-10-05 因账户计费锁定未启动。该历史运行不对应本次源码，也不能证明限制至今未解除；上传后须核实新运行能启动并成功。
+
+### 本次发布准备核对（2026-11-11）
+
+- 对照最近 Claude Code 会话及工作区，同步了旧引擎补丁遗漏的 27 个源码文件；libsys4 补丁与当前源码一致，无需改动。
+- 本次实际运行 `node tools/test-rance10-all.mjs`，24 项核心回归通过。测试范围与环境要求见 [tools/README.md](tools/README.md#兰斯10本地回归)。
+- 历史会话中最新 arm64 APK 有构建及覆盖安装成功记录；这不是本次三架构 CI 或完整真机游戏流程通过的证据。
+- 两份补丁均已在固定基线的干净临时索引中成功应用，并与当前发布源码树一致（引擎 119 个变更文件、libsys4 21 个）。
+  `.gitattributes` 固定补丁为 LF，避免 Windows checkout 的 CRLF 使补丁无法直接应用。
 
 ## 致谢与许可
 
 - [xsystem4](https://github.com/nunuhara/xsystem4) / [libsys4](https://github.com/nunuhara/libsys4)：
-  Nunuhara Cabbage 等，GPL-2.0
-- [xsystem4-android](https://github.com/kichikuou/xsystem4-android)：kichikuou，GPL-2.0
-- [Anime4K](https://github.com/bloc97/Anime4K)：bloc97 等，MIT
-- [CEFFontsCJK](https://github.com/Partyb0ssishere/cef-fonts-cjk)：OFL-1.1
+  Nunuhara Cabbage 等；引擎源码声明 GPL-2.0-or-later，具体文件以各自声明为准。
+- [xsystem4-android](https://github.com/kichikuou/xsystem4-android)：kichikuou。
+- [Anime4K](https://github.com/bloc97/Anime4K)：bloc97 等，MIT。
+- [CuNNy](https://github.com/funnyplanter/CuNNy) / [Magpie](https://github.com/Blinue/Magpie)：
+  CuNNy2 fast-NVL 移植保留 **GPL-3.0-or-later** 声明、原始 HLSL 与 COPYING，见 `xsystem4/shaders/cunny/`。
+- [CEFFontsCJK](https://github.com/Partyb0ssishere/cef-fonts-cjk)、Noto 后备字体：OFL-1.1，来源见字体目录。
+- FFmpeg 及其它依赖：遵循所用版本和实际构建配置的许可证。
 
-本分支同样以 GPL-2.0 发布。游戏本体与汉化补丁的版权归各自权利人所有，本项目不附带任何游戏文件。
+不能将包含 CuNNy2 的分发包笼统标为“全部 GPL-2.0”；发布时须保留各组件的许可证并满足其分发要求。
+游戏本体与汉化补丁的版权归各自权利人所有，本项目不附带任何游戏文件。

@@ -73,6 +73,7 @@ void array_ref_instruction(void){do ${opcode('A_REF')} while(0);}
 union vm_value stack_peek(int n){return stack[stack_ptr-n-1];}
 struct page *heap_get_delegate_page(int no){if(no!=20&&no!=60)__builtin_trap();return heap[no].page;}
 int delegate_targets,delegate_this;
+struct page *pruned;int prunes;void delegate_prune(struct page *p){pruned=p;prunes++;}
 bool delegate_get(struct page *p,int i,int *obj,int *fun){if(i>=(p&&p->index==-1?p->nr_vars/3:delegate_targets))return false;*obj=55;*fun=3;return true;}
 union vm_value vm_copy(union vm_value v,int t){(void)t;return v;}
 int call_stack_ptr,current_local=30;
@@ -139,6 +140,8 @@ int run_tests(void){
  struct member dgvars[1]={{{AIN_INT,0}}};delegates[0].variables=dgvars;
  stack_ptr=0;stack_push(999);stack_push(20);stack_push(42);operands[0]=0;operands[1]=888;
  delegate_targets=1;pages[20].nr_vars=3;delegate_begin();CHECK(stack_ptr==6&&stack[1].i==42&&stack[2].i==60&&stack[3].i==0);
+ /* stale entries leave the live list before the snapshot is taken */
+ CHECK(prunes==1&&pruned==heap[20].page);
  delegate_call(0,888);CHECK(stack_ptr==4&&stack[3].i==1&&pages[1].values[0].i==42&&delegate_this==55&&pages[1].local.struct_ptr==55);
  stack_push(51);stack_push(309);delegate_call(0,888);
  CHECK(stack_ptr==3&&stack[0].i==999&&stack[1].i==51&&stack[2].i==309&&instr_ptr==888&&invocation_releases==1);

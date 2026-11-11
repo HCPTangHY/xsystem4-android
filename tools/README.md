@@ -46,7 +46,8 @@ Get-Content tools\calls.txt | ForEach-Object {
 }
 ```
 
-任何出现在 `calls.txt` 但不在 `$allExports` 中的函数 = 必崩点。
+以上仅是按名字初筛，不能证明 ABI 兼容；还需检查 `HLL_EXPORT_SIG`、重载参数及实际调用路径。
+函数已导出也不代表所有行为已实现，更不能代替游戏流程验收。
 
 ## 已知加密/格式
 
@@ -57,20 +58,53 @@ Get-Content tools\calls.txt | ForEach-Object {
 
 ## 各作适配记录
 
-| 游戏 | ain 版本 | 缺失函数 | 状态 |
-|---|---|---|---|
-| 兰斯6 (CN) | ? | 无 | 正常 |
-| 战国兰斯 (Kagura CN) | 5 | SACT2 ×7 | 已修复 (patch 0001) |
-| 兰斯8/クエスト (CN) | ? | 待分析 | ⏳ 需要游戏文件 |
-| 兰斯IX (CN) | ? | 待分析 | ⏳ 需要游戏文件 |
+| 游戏 | 当前记录 | 验证边界 |
+|---|---|---|
+| 兰斯6 / 战国兰斯（中文版） | 已有适配记录，战国兰斯 SACT2 缺失调用已补齐 | 本次未重新跑完整游戏流程 |
+| 兰斯8 / 兰斯9（中文版） | 已有资源、字体、渲染、音频等适配 | ASF/WMV 需要实际链接 FFmpeg 的 APK |
+| 兰斯10（中文版） | VM、泛型数组/委托、PartsEngine 输入、存读档持续适配 | APEG 仅原声；非空场景回顾和长时间游戏仍待设备验收 |
+
+## 兰斯10本地回归
+
+从仓库根目录执行：
+
+```sh
+node tools/test-rance10-all.mjs
+```
+
+依赖 Node.js，以及可输出 `wasm32-unknown-unknown` 的 Clang/wasm-ld。
+默认编译器是仓库旁 `android-build/sdk/ndk/27.2.12479018/toolchains/llvm/prebuilt/windows-x86_64/bin/clang.exe`；
+其它环境可设置 `RANCE10_TEST_CLANG` 为自己的 Clang 路径：
+
+```sh
+RANCE10_TEST_CLANG=/path/to/clang node tools/test-rance10-all.mjs
+```
+
+入口顺序执行 24 项核心回归，覆盖 VM 引用/构造调用、50 种游戏使用的 Array 签名、EX/资源读取、
+存读档、消息/输入/布局、字符串处理、错误报告与界面资源等。最新加入：
+
+- `test-rance10-atomic-save.mjs`：原子写入错误路径及写入中断时保留旧文件。
+- `test-rance10-load-input.mjs`：读档后根据恢复的 VM 栈还原嵌套等待输入层数。
+- `test-rance10-delegates.mjs`：失效委托项不误释放复用 heap slot 的新对象、闭包所有权与清理。
+
+测试产物写入已忽略的 `build/rance10-tests/`。这些是宿主机 C/WASM 回归，不运行 Android 完整引擎；
+`test-rance10-review-controls.py` 等独立 Python 脚本不包含在这 24 项中，部分还依赖本机游戏资源/路径。
+不要将“24 项通过”描述成所有工具脚本、三 ABI 构建、实机断电或完整游戏流程均通过。
+当前 GitHub workflow 尚未执行此回归入口，上传前需单独运行。
 
 ## 补丁管理
 
-- `patches/*.patch`：CI 构建时自动应用到 xsystem4 子模块
-  （见 `.github/workflows/build.yml` 的 "Apply engine patches" 步骤）
-- 本地开发：直接在 `xsystem4/` 子模块里改，`git diff > patches/xxxx.patch` 重新生成
-- 生成补丁后务必验证：
-  `git apply --check`（在干净的 04333ad 树上，注意文件必须是 LF 行尾）
+- `patches/0001-xsystem4-android-cn.patch`：CI 应用到 `xsystem4` 的固定基线 `04333ad689d7e517a93d58141bb214c19ba16129`。
+- `patches/libsys4/0001-libsys4-cn.patch`：单独应用到嵌套 libsys4 的 `20560d4d6d41a7196bd6b8409bcbb974f9de4af0`。
+- 本地开发直接修改子模块，但外层 commit/push 不会携带这些修改。发布必须同步补丁，且包含新增源码。
+- 单独 `git diff` 会遗漏未跟踪文件；建议用独立 `GIT_INDEX_FILE` 临时索引：从 `HEAD` 读入，加入源码，
+  再用 `git diff --cached --binary HEAD` 导出。不要为生成补丁而改动用户原有暂存区。
+- 引擎快照排除嵌套 libsys4 和下载的 `.ttf/.otf/.license`；libsys4 排除生成的 `src/gbk_table.h`、
+  `src/gbk_rev_table.h`。字体来源清单、着色器源码及其许可证仍须纳入。
+- Windows 导出需按仓库 `core.autocrlf` 规则规范化到 LF，避免把整棵源码的换行差异写进补丁。
+- 在固定基线的干净目录中 `git apply --check` 后应用，或在独立索引中 `git apply --cached` 并比较源码树。
+  不要在已经打过补丁的工作区重复应用。构建前还需生成 GBK 表并下载字体，见[主 README](../README.md#本地构建)。
+- 根目录 `.gitattributes` 将 `*.patch` 固定为 LF；生成工具也须输出 LF，不要保留旧文件的 CRLF 换行。
 
 ## 长期目标
 

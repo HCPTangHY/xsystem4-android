@@ -30,6 +30,7 @@ function macro(name) {
 }
 const source = `
 typedef int int32_t;
+typedef unsigned int uint32_t;
 typedef long long int64_t;
 typedef unsigned int size_t;
 typedef _Bool bool;
@@ -126,7 +127,7 @@ ${func('src/page.c','array_fill')}
 ${func('src/page.c','array_reverse')}
 unsigned int heap_get_seq(int object){return object<0?0:object+1;}
 struct page *heap_get_delegate_page(int slot){struct page *p=heap_get_page(slot);if(p && p->type!=DELEGATE_PAGE)__builtin_trap();return p;}
-${['delegate_is_closure','delegate_new_from_method','delegate_contains','delegate_append','delegate_numof','delegate_erase','delegate_clear','delegate_get'].map(n=>func('src/page.c',n)).join('\n')}
+${['delegate_is_closure','delegate_new_from_method','delegate_contains','delegate_append','delegate_numof','delegate_entry_current','delegate_entry_live','delegate_remove_entry','delegate_erase','delegate_prune','delegate_clear','delegate_get'].map(n=>func('src/page.c',n)).join('\n')}
 ${read('src/hll/ArrayGeneric.c').replace(/^#(?:include|define VM_PRIVATE).*$/gm,'')}
 ${['repair_legacy_scalar_array_pages','repair_legacy_scalar_array','repair_legacy_array_types'].map(n=>func('src/resume.c',n)).join('\n')}
 int game_array_coverage(void) {

@@ -21,8 +21,18 @@ const required=[
   ['hll/PartsEngine.c',/HLL_EXPORT\(Parts_GetPartsCGDeform, PartsEngine_GetPartsCGDeform\)/],
   ['hll/PartsEngine.c',/HLL_EXPORT\(SetEnableSpeedUp, PartsEngine_SetEnableSpeedUp\)/],
   ['hll/PartsEngine.c',/HLL_EXPORT\(IsEnableSpeedUp, PartsEngine_IsEnableSpeedUp\)/],
+  ['hll/PartsEngine.c',/HLL_EXPORT\(CreatePartsMovie, PE_create_parts_movie\)/],
+  ['hll/PartsEngine.c',/HLL_EXPORT\(ReleasePartsMovie, PE_release_parts_movie\)/],
+  ['hll/PartsEngine.c',/HLL_EXPORT\(PlayPartsMovie, PE_play_parts_movie\)/],
+  ['hll/PartsEngine.c',/HLL_EXPORT\(SetMovieTime, PE_set_movie_time\)/],
+  ['hll/PartsEngine.c',/HLL_EXPORT\(IsEndPartsMovie, PE_is_end_parts_movie\)/],
+  ['hll/PartsEngine.c',/HLL_EXPORT\(GetPartsMovieEndTime, PE_get_parts_movie_end_time\)/],
+  ['hll/PartsEngine.c',/HLL_EXPORT\(GetPartsMovieCurrentTime, PE_get_parts_movie_current_time\)/],
+  ['hll/PartsEngine.c',/HLL_EXPORT\(Parts_SetSwipeType, PE_SetSwipeType\)/],
+  ['hll/PartsEngine.c',/HLL_EXPORT\(Parts_GetSwipeType, PE_GetSwipeType\)/],
+  ['hll/PartsEngine.c',/HLL_EXPORT\(Parts_StopSwipe, PE_StopSwipe\)/],
 ];
 for (const [file,re] of required) assert.match(read(file),re,`${file}: ${re}`);
 // MainEXFile.Save must succeed: a failure makes every save call system.Error.
 assert.match(read('hll/MainEXFileNew.inc'),/static bool MainEXNew_Save\(struct page \*\*image\)\n\{[\s\S]*?\n\treturn true;\n\}/);
-console.log(`PASS: ${required.length} once-unbound Rance 10 HLL overloads stay registered (Min/Max 3-4 args, ReplaceRegex, Error, EX image, CG deform, speed-up).`);
+console.log(`PASS: ${required.length} once-unbound Rance 10 HLL overloads stay registered (Min/Max 3-4 args, ReplaceRegex, Error, EX image, CG deform, speed-up, APEG movie parts, swipe).`);

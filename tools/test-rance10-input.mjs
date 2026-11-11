@@ -17,14 +17,22 @@ __attribute__((import_module("env"),import_name("sinf"))) float test_sinf(float)
 __attribute__((import_module("env"),import_name("cosf"))) float test_cosf(float);
 #define sinf test_sinf
 #define cosf test_cosf
+__attribute__((import_module("env"),import_name("powf"))) float test_powf(float,float);
+__attribute__((import_module("env"),import_name("hypotf"))) float test_hypotf(float,float);
+#define powf test_powf
+#define hypotf test_hypotf
+static long test_lroundf(float x){return (long)(x<0?x-0.5f:x+0.5f);}
+#define lroundf test_lroundf
+static int test_abs(int x){return x<0?-x:x;}
+#define abs test_abs
 ${fs.readFileSync(path.join(root,'xsystem4/src/parts/rotation.h'),'utf8').replace(/^#include[^\n]*$/mg,'')}
 typedef struct {int x,y;} Point;typedef struct {int x,y,w,h;} Rectangle;
 enum parts_type {PARTS_CG,PARTS_LAYOUT_BOX,PARTS_UNINITIALIZED,PARTS_RECT_DETECTION,PARTS_FLAT};
 struct parts_flat {Rectangle visible;};
-struct parts {int no,state,controller_no;struct {enum parts_type type;struct {Rectangle hitbox,surface_area;} common;struct parts_flat flat;} states[3];struct parts *parent;void *scrollbar;bool back_scene,draggable,wheelable,input_enabled,is_hovered,pass_cursor,clickable,checkbox_checked,checkbox_button_mode;int component_type_override,linked_from,hover_time,on_cursor_sound,on_click_sound;struct {bool show;int alpha;Point pos;struct {float x,y,z;} scale,rotation;} global,local;};
+struct parts {int no,state,controller_no;struct {enum parts_type type;struct {Rectangle hitbox,surface_area;} common;struct parts_flat flat;} states[3];struct parts *parent;void *scrollbar;int swipe_type;bool back_scene,draggable,wheelable,input_enabled,is_hovered,pass_cursor,clickable,checkbox_checked,checkbox_button_mode;int component_type_override,linked_from,hover_time,on_cursor_sound,on_click_sound;struct {bool show;int alpha;Point pos;struct {float x,y,z;} scale,rotation;} global,local;};
 void parts_textbox_focus(int no){(void)no;}
 bool parts_flat_hittest(struct parts *p,struct parts_flat *f,float x,float y){(void)p;return x>=f->visible.x&&y>=f->visible.y&&x<f->visible.x+f->visible.w&&y<f->visible.y+f->visible.h;}
-enum {PARTS_STATE_DEFAULT,PARTS_STATE_HOVERED,PARTS_STATE_CLICKED,VK_LBUTTON=1,VK_RBUTTON=2,VK_MBUTTON=4,PARTS_MSG_MOUSE_ENTER=10,PARTS_MSG_MOUSE_LEAVE,PARTS_MSG_MOUSE_ON,PARTS_MSG_MOUSE_MOVE,PARTS_MSG_KEY_TRIGGER,PARTS_MSG_KEY_DOWN,PARTS_MSG_MOUSE_CLICK,PARTS_MSG_KEY_UP,PARTS_MSG_DRAG_BEGIN,PARTS_MSG_DRAGGING,PARTS_MSG_DRAG_END,PARTS_MSG_DROP_ENTER,PARTS_MSG_DROP_ON,PARTS_MSG_DROPPED,PARTS_MSG_DROP_LEAVE,PARTS_MSG_KEY_PRESS,PARTS_MSG_MOUSE_WHEEL};
+enum {PARTS_STATE_DEFAULT,PARTS_STATE_HOVERED,PARTS_STATE_CLICKED,VK_LBUTTON=1,VK_RBUTTON=2,VK_MBUTTON=4,PARTS_MSG_MOUSE_ENTER=10,PARTS_MSG_MOUSE_LEAVE,PARTS_MSG_MOUSE_ON,PARTS_MSG_MOUSE_MOVE,PARTS_MSG_KEY_TRIGGER,PARTS_MSG_KEY_DOWN,PARTS_MSG_MOUSE_CLICK,PARTS_MSG_KEY_UP,PARTS_MSG_DRAG_BEGIN,PARTS_MSG_DRAGGING,PARTS_MSG_DRAG_END,PARTS_MSG_DROP_ENTER,PARTS_MSG_DROP_ON,PARTS_MSG_DROPPED,PARTS_MSG_DROP_LEAVE,PARTS_MSG_KEY_PRESS,PARTS_MSG_MOUSE_WHEEL,PARTS_MSG_SWIPE_BEGIN,PARTS_MSG_SWIPING,PARTS_MSG_SWIPE_END};
 static int wheel_dir;static unsigned wheel_serial;
 ${nativeFn('mouse_get_wheel_serial')}
 ${nativeFn('mouse_get_wheel')}
@@ -40,6 +48,7 @@ int SDL_PointInRect(Point *p,Rectangle *r){return p->x>=r->x&&p->x<r->x+r->w&&p-
 void parts_msg_push(struct parts *p,int type,const char *fmt,...){if(event_count>=256)__builtin_trap();counts[type]++;event_part[event_count]=p?p->no:0;event_type[event_count]=type;event_format[event_count]=fmt;va_list ap;va_start(ap,fmt);for(int i=0;fmt[i];i++){if(i>=5||(fmt[i]!='i'&&fmt[i]!='b'))__builtin_trap();event_args[event_count][i]=va_arg(ap,int);}va_end(ap);if(type==PARTS_MSG_MOUSE_CLICK)event_button[event_count]=event_args[event_count][2];event_count++;}
 void parts_dirty(struct parts *p){(void)p;}
 struct parts *parts_get(int no){(void)no;__builtin_trap();}
+struct parts *parts_try_get(int no){(void)no;return 0;}
 void audio_play_sound(int no){(void)no;}
 void parts_set_state(struct parts *p,int state){p->state=state;}
 void parts_set_pos(struct parts *p,Point pos){p->local.pos=pos;}
@@ -75,6 +84,8 @@ int PE_get_system_controller(void){return 999;}
 static int test_stack[4]={1,3,7,9};
 int PE_get_controller_index(int id){for(int i=0;i<4;i++)if(test_stack[i]==id)return i;return -1;}
 void drag_state_reset(void){drag_parts=NULL;drop_target=NULL;is_dragging=false;}
+int released_messages;void PE_ReleaseMessage(void){released_messages++;}
+static struct parts *swipe_parts;static bool swipe_active,swipe_inertia;static Point swipe_begin;static float swipe_fx,swipe_fy,swipe_vx,swipe_vy;static uint32_t swipe_tick;
 ${input.slice(input.indexOf('void PE_BeginInput(void)'),input.indexOf('void PE_SetDrag('))}
 ${input.slice(input.indexOf('static bool parts_hittest'),input.indexOf('static void drag_state_reset'))}
 ${input.slice(input.indexOf('static bool parts_controller_receives_input'),input.indexOf('void PE_UpdateInputState'))}
@@ -280,10 +291,64 @@ down=(SDL_MouseButtonEvent){1,SDL_PRESSED,150,250};mouse_event(&down);
 test_mouse=(Point){500,500};PE_UpdateInputState(16);
 CHECK(click_down_parts==2&&counts[PARTS_MSG_DRAG_BEGIN]==1&&counts[PARTS_MSG_DRAGGING]==1);
 test_keys[VK_LBUTTON]=false;PE_UpdateInputState(16);CHECK(counts[PARTS_MSG_DRAG_END]==1);
+/* Swipe: a list item under a vertical swipe area (backlog, ScrollBase). */
+{struct parts item={.no=40,.input_enabled=true,.clickable=true,.linked_from=-1,.global={.show=true,.alpha=255,.scale={1,1}}};
+ struct parts area={.no=41,.input_enabled=true,.pass_cursor=true,.linked_from=-1,.swipe_type=2,.global={.show=true,.alpha=255,.scale={1,1}}};
+ item.states[0].common.hitbox=(Rectangle){0,0,400,400};area.states[0].common.hitbox=(Rectangle){0,0,400,400};area.states[0].type=PARTS_RECT_DETECTION;
+ test_parts[0]=&item;test_parts[1]=&area;test_count=2;
+ /* A tap still clicks the item and sends no swipe message. */
+ PE_EndInput();PE_BeginInput();memset(counts,0,sizeof(counts));event_count=0;prev_clicking=false;
+ test_mouse=(Point){100,100};test_keys[VK_LBUTTON]=true;PE_UpdateInputState(16);
+ test_keys[VK_LBUTTON]=false;PE_UpdateInputState(16);
+ CHECK(counts[PARTS_MSG_MOUSE_CLICK]>=1&&!counts[PARTS_MSG_SWIPE_BEGIN]&&!counts[PARTS_MSG_SWIPE_END]);
+ /* Moving along the axis begins the swipe and cancels both the item click and
+  * the WholeMouse click the backlog closes on; a slow release just ends it. */
+ PE_EndInput();PE_BeginInput();memset(counts,0,sizeof(counts));event_count=0;prev_clicking=false;
+ test_ticks=1000;test_mouse=(Point){100,100};test_keys[VK_LBUTTON]=true;PE_UpdateInputState(16);
+ test_ticks+=16;test_mouse=(Point){100,108};PE_UpdateInputState(16);CHECK(!counts[PARTS_MSG_SWIPE_BEGIN]);
+ test_ticks+=16;test_mouse=(Point){100,140};PE_UpdateInputState(16);
+ int b=queued(PARTS_MSG_SWIPE_BEGIN),w=queued(PARTS_MSG_SWIPING);
+ CHECK(b>=0&&event_part[b]==41&&w>b&&event_part[w]==41&&!strcmp(event_format[w],"iiiib"));
+ CHECK(event_args[w][0]==100&&event_args[w][1]==100&&event_args[w][2]==100&&event_args[w][3]==140&&!event_args[w][4]);
+ CHECK(click_down_parts==0);
+ test_ticks+=300;test_keys[VK_LBUTTON]=false;PE_UpdateInputState(16);
+ CHECK(counts[PARTS_MSG_SWIPE_END]==1&&!counts[PARTS_MSG_MOUSE_CLICK]);
+ /* A horizontal move on a vertical area never swipes. */
+ PE_EndInput();PE_BeginInput();memset(counts,0,sizeof(counts));event_count=0;prev_clicking=false;
+ test_mouse=(Point){100,100};test_keys[VK_LBUTTON]=true;PE_UpdateInputState(16);
+ test_mouse=(Point){160,102};PE_UpdateInputState(16);test_keys[VK_LBUTTON]=false;PE_UpdateInputState(16);
+ CHECK(!counts[PARTS_MSG_SWIPE_BEGIN]&&!counts[PARTS_MSG_SWIPE_END]);
+ /* A fling keeps scrolling with inertia, then ends exactly once. */
+ PE_EndInput();PE_BeginInput();memset(counts,0,sizeof(counts));event_count=0;prev_clicking=false;
+ test_ticks=5000;test_mouse=(Point){100,300};test_keys[VK_LBUTTON]=true;PE_UpdateInputState(16);
+ test_ticks+=16;test_mouse=(Point){100,260};PE_UpdateInputState(16);
+ test_ticks+=16;test_mouse=(Point){100,220};PE_UpdateInputState(16);
+ test_keys[VK_LBUTTON]=false;PE_UpdateInputState(16);CHECK(!counts[PARTS_MSG_SWIPE_END]&&swipe_inertia);
+ int inertial=0,last_y=220;
+ for(int i=0;i<2000&&!counts[PARTS_MSG_SWIPE_END];i++){event_count=0;test_ticks+=16;PE_UpdateInputState(16);
+  int e=queued(PARTS_MSG_SWIPING);if(e>=0){CHECK(event_args[e][4]==1&&event_args[e][3]<=last_y);last_y=event_args[e][3];inertial++;}}
+ CHECK(inertial>5&&counts[PARTS_MSG_SWIPE_END]==1&&last_y<220&&!swipe_parts);
+ /* A new touch stops the fling. */
+ PE_EndInput();PE_BeginInput();memset(counts,0,sizeof(counts));event_count=0;prev_clicking=false;
+ test_ticks=9000;test_mouse=(Point){100,300};test_keys[VK_LBUTTON]=true;PE_UpdateInputState(16);
+ test_ticks+=16;test_mouse=(Point){100,250};PE_UpdateInputState(16);test_keys[VK_LBUTTON]=false;PE_UpdateInputState(16);
+ CHECK(swipe_inertia);test_ticks+=16;test_keys[VK_LBUTTON]=true;PE_UpdateInputState(16);
+ CHECK(counts[PARTS_MSG_SWIPE_END]==1&&!swipe_inertia);
+ test_keys[VK_LBUTTON]=false;PE_UpdateInputState(16);test_count=0;}
+/* After a load the nesting comes from the restored stack, input state is
+ * cleared and messages queued for the old screen are dropped. */
+PE_EndInput();PE_EndInput();PE_EndInput();
+PE_BeginInput();PE_BeginInput();PE_BeginInput();PE_BeginInput();PE_BeginInput();
+clicked_parts=7;click_down_parts=7;whole_button_armed[0]=true;released_messages=0;
+PE_ResetInputDepth(1);
+CHECK(parts_input_depth==1&&parts_began_click&&!clicked_parts&&!click_down_parts&&!whole_button_armed[0]&&released_messages==1);
+PE_EndInput();CHECK(!parts_began_click&&parts_input_depth==0);
+PE_ResetInputDepth(0);CHECK(!parts_began_click&&parts_input_depth==0);
+PE_BeginInput();
 return 0;}
 `;
 fs.writeFileSync(path.join(build,'input-test.c'),source);
 const compiler=process.env.RANCE10_TEST_CLANG||path.resolve(root,'../android-build/sdk/ndk/27.2.12479018/toolchains/llvm/prebuilt/windows-x86_64/bin/clang.exe'),wasm=path.join(build,'input-test.wasm');
 const r=spawnSync(compiler,['--target=wasm32-unknown-unknown','-x','c','-std=gnu11','-O1','-fno-builtin','-nostdlib','-Werror','-Wl,--no-entry','-Wl,--export=run_tests','-o',wasm,'-'],{input:source,encoding:'utf8',env:{...process.env,TEMP:build,TMP:build}});assert.equal(r.status,0,r.stderr||r.stdout);
-const {instance}=await WebAssembly.instantiate(fs.readFileSync(wasm),{env:{sinf:Math.sin,cosf:Math.cos,vm_error(line){throw new Error('VM '+line);}}});const line=instance.exports.run_tests();assert.equal(line,0,`C failure ${line}: ${source.split('\n')[line-1]}`);
+const {instance}=await WebAssembly.instantiate(fs.readFileSync(wasm),{env:{sinf:Math.sin,cosf:Math.cos,powf:Math.pow,hypotf:Math.hypot,vm_error(line){throw new Error('VM '+line);}}});const line=instance.exports.run_tests();assert.equal(line,0,`C failure ${line}: ${source.split('\n')[line-1]}`);
 console.log('PASS: native input and WholeMouse wheel routing; empty/text areas, both directions, one dispatch per step, nested waits, clear-count behavior, per-part listeners and legacy input behavior.');

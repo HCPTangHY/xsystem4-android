@@ -1,5 +1,5 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index d213ee3..6cb5c1e 100644
+index d213ee3..fcb3f24 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -6,11 +6,19 @@ set(CMAKE_C_STANDARD 11)
@@ -86,11 +86,12 @@ index d213ee3..6cb5c1e 100644
  add_subdirectory(subprojects/libsys4)
  
  add_library(xsystem4 SHARED)
-@@ -43,12 +103,14 @@ configure_file(src/version.h.in version.h)
+@@ -43,12 +103,15 @@ configure_file(src/version.h.in version.h)
  include_directories(${CMAKE_CURRENT_BINARY_DIR})
  
  target_sources(xsystem4 PRIVATE
 +  src/anime4k.c
++  src/apeg.c
    src/audio.c
    src/audio_meta.c
    src/audio_mixer.c
@@ -101,7 +102,7 @@ index d213ee3..6cb5c1e 100644
    src/draw.c
    src/effect.c
    src/ffi.c
-@@ -61,9 +123,9 @@ target_sources(xsystem4 PRIVATE
+@@ -61,9 +124,9 @@ target_sources(xsystem4 PRIVATE
    src/id_pool.c
    src/input.c
    src/json.c
@@ -112,7 +113,7 @@ index d213ee3..6cb5c1e 100644
    src/resume.c
    src/savedata.c
    src/scene.c
-@@ -72,6 +134,9 @@ target_sources(xsystem4 PRIVATE
+@@ -72,6 +135,9 @@ target_sources(xsystem4 PRIVATE
    src/swf.c
    src/system4.c
    src/text.c
@@ -122,7 +123,7 @@ index d213ee3..6cb5c1e 100644
    src/util.c
    src/video.c
    src/vm.c
-@@ -121,6 +186,7 @@ target_sources(xsystem4 PRIVATE
+@@ -121,6 +187,7 @@ target_sources(xsystem4 PRIVATE
    src/hll/AliceLogo5.c
    src/hll/AnteaterADVEngine.c
    src/hll/Array.c
@@ -130,7 +131,7 @@ index d213ee3..6cb5c1e 100644
    src/hll/BanMisc.c
    src/hll/Bitarray.c
    src/hll/CalcTable.c
-@@ -170,6 +236,7 @@ target_sources(xsystem4 PRIVATE
+@@ -170,6 +237,7 @@ target_sources(xsystem4 PRIVATE
    src/hll/MamanyoSDemo.c
    src/hll/MarmotModelEngine.c
    src/hll/Math.c
@@ -138,7 +139,7 @@ index d213ee3..6cb5c1e 100644
    src/hll/MapLoader.c
    src/hll/MenuMsg.c
    src/hll/MonsterInfo.c
-@@ -227,8 +294,20 @@ target_sources(xsystem4 PRIVATE
+@@ -227,8 +295,20 @@ target_sources(xsystem4 PRIVATE
    )
  
  target_link_libraries(xsystem4 PRIVATE
@@ -196,6 +197,45 @@ index 0000000..4a7a919
 +    }
 +  }
 +}
+diff --git a/include/apeg.h b/include/apeg.h
+new file mode 100644
+index 0000000..24ab884
+--- /dev/null
++++ b/include/apeg.h
+@@ -0,0 +1,33 @@
++/* AliceSoft APEG movies (Rance 10 Movie\NAME.apeg).
++ *
++ * Container (little endian, chunks of 4-byte tag + u32 payload size):
++ *   APEG  header: u32 frame-rate code, u16 width, u16 height,
++ *         64-byte intra and non-intra quantiser matrices,
++ *         u32 duration (ms), u32 key-frame count, then (u32 ms, u32 offset)
++ *   TMNL  zlib-compressed thumbnail
++ *   SOND  Ogg Vorbis sound track
++ *   IPIC/PPIC/BPIC  video pictures (u32 presentation time in ms + an
++ *         MPEG-1-like bitstream without start codes)
++ *
++ * The picture bitstream is AliceSoft's own variant and is not decoded yet;
++ * playback runs the sound track against the movie clock over the part's
++ * background colour, so scenes that wait for the movie behave as on PC.
++ */
++#ifndef SYSTEM4_APEG_H
++#define SYSTEM4_APEG_H
++
++#include <stdbool.h>
++
++struct apeg_player;
++
++struct apeg_player *apeg_open(const char *game_path, int mixer_no);
++void apeg_close(struct apeg_player *p);
++int apeg_width(struct apeg_player *p);
++int apeg_height(struct apeg_player *p);
++int apeg_duration(struct apeg_player *p);
++bool apeg_play(struct apeg_player *p, int msec);
++void apeg_seek(struct apeg_player *p, int msec);
++int apeg_position(struct apeg_player *p);
++bool apeg_is_end(struct apeg_player *p);
++
++#endif /* SYSTEM4_APEG_H */
 diff --git a/include/asset_manager.h b/include/asset_manager.h
 index d182f41..f82d8e3 100644
 --- a/include/asset_manager.h
@@ -355,7 +395,7 @@ index 0000000..3791a1e
 +void msgskip_flush(void);
 +#endif
 diff --git a/include/parts.h b/include/parts.h
-index 8dd17e2..1fd7eaf 100644
+index 8dd17e2..373746a 100644
 --- a/include/parts.h
 +++ b/include/parts.h
 @@ -29,6 +29,20 @@ void PE_Reset(void);
@@ -416,7 +456,7 @@ index 8dd17e2..1fd7eaf 100644
  bool PE_Load(struct page **buffer);
  int PE_AddController(int index);
  void PE_RemoveController(struct page **erase_number_list, int index);
-@@ -132,6 +155,9 @@ void PE_set_active_controller(int controller_no);
+@@ -132,16 +155,29 @@ void PE_set_active_controller(int controller_no);
  int PE_get_active_controller(void);
  int PE_get_system_controller(void);
  int PE_get_nr_controllers(void);
@@ -426,7 +466,18 @@ index 8dd17e2..1fd7eaf 100644
  void PE_parts_set_want_save(int parts_no, bool want_save);
  bool PE_save_thumbnail(struct string *filename, int reduction_factor);
  bool PE_init_parts_movie(int parts_no, int width, int height, int bg_r, int bg_g, int bg_b, int state);
-@@ -142,6 +168,8 @@ int PE_parts_get_absolute_z(int parts_no);
+ int PE_get_movie_sprite(int parts_no, int state);
++bool PE_create_parts_movie(int parts_no, struct string *filename, int sound_id,
++		int sound_group, int r, int g, int b, int state);
++bool PE_release_parts_movie(int parts_no, int state);
++bool PE_play_parts_movie(int parts_no, int msec, int state);
++void PE_set_movie_time(int parts_no, int msec, int state);
++bool PE_is_end_parts_movie(int parts_no, int state);
++int PE_get_parts_movie_end_time(int parts_no, int state);
++int PE_get_parts_movie_current_time(int parts_no, int state);
+ float PE_parts_get_absolute_x(int parts_no);
+ float PE_parts_get_absolute_y(int parts_no);
+ int PE_parts_get_absolute_z(int parts_no);
  void PE_parts_set_lock_input_state(int parts_no, bool lock);
  
  // construction.c
@@ -435,7 +486,7 @@ index 8dd17e2..1fd7eaf 100644
  bool PE_AddCreateToPartsConstructionProcess(int parts_no, int w, int h, int state);
  bool PE_AddCreatePixelOnlyToPartsConstructionProcess(int parts_no, int w, int h, int state);
  bool PE_AddCreateCGToProcess(int parts_no, struct string *cg_name, int state);
-@@ -156,6 +184,8 @@ bool PE_AddDrawRectToPartsConstructionProcess(int parts_no, int x, int y, int w,
+@@ -156,6 +192,8 @@ bool PE_AddDrawRectToPartsConstructionProcess(int parts_no, int x, int y, int w,
  		int r, int g, int b, int state);
  bool PE_AddDrawCutCGToPartsConstructionProcess(int parts_no, struct string *cg_name,
  		int dx, int dy, int dw, int dh, int sx, int sy, int sw, int sh, int interp_type, int state);
@@ -444,7 +495,7 @@ index 8dd17e2..1fd7eaf 100644
  bool PE_AddCopyCutCGToPartsConstructionProcess(int parts_no, struct string *cg_name,
  		int dx, int dy, int dw, int dh, int sx, int sy, int sw, int sh, int interp_type, int state);
  bool PE_AddGrayFilterToPartsConstructionProcess(int parts_no, int x, int y, int w, int h,
-@@ -168,6 +198,10 @@ bool PE_AddDrawTextToPartsConstructionProcess(int parts_no, int x, int y, struct
+@@ -168,6 +206,10 @@ bool PE_AddDrawTextToPartsConstructionProcess(int parts_no, int x, int y, struct
  		int type, int size, int r, int g, int b, float bold_weight,
  		int edge_r, int edge_g, int edge_b, float edge_weight,
  		int char_space, int line_space, int state);
@@ -455,7 +506,18 @@ index 8dd17e2..1fd7eaf 100644
  bool PE_BuildPartsConstructionProcess(int parts_no, int state);
  bool PE_ClearPartsConstructionProcess(int parts_no, int state);
  bool PE_SetPartsConstructionSurfaceArea(int parts_no, int x, int y, int w, int h, int state);
-@@ -266,6 +300,9 @@ bool PE_SetPartsFontEdgeColor(int parts_no, int r, int g, int b, int state);
+@@ -179,6 +221,10 @@ bool PE_GetPartsPassCursor(int parts_no);
+ void PE_SetClickable(int parts_no, bool clickable);
+ bool PE_GetPartsClickable(int parts_no);
+ void PE_SetDrag(int parts_no, bool enable);
++void PE_SetSwipeType(int parts_no, int type);
++int PE_GetSwipeType(int parts_no);
++void PE_StopSwipe(void);
++void PE_ResetInputDepth(unsigned depth);
+ void PE_SetPartsGroupDecideOnCursor(int group_no, bool decide_on_cursor);
+ void PE_SetPartsGroupDecideClick(int group_no, bool decide_click);
+ void PE_SetOnCursorShowLinkPartsNumber(int parts_no, int link_parts_no);
+@@ -266,6 +312,9 @@ bool PE_SetPartsFontEdgeColor(int parts_no, int r, int g, int b, int state);
  bool PE_SetPartsFontEdgeWeight(int parts_no, float edge_weight, int state);
  bool PE_SetTextCharSpace(int parts_no, int char_space, int state);
  bool PE_SetTextLineSpace(int parts_no, int line_space, int state);
@@ -465,7 +527,7 @@ index 8dd17e2..1fd7eaf 100644
  
  // flash.c
  bool PE_ExistsFlashFile(struct string *flash_filename);
-@@ -283,6 +320,12 @@ int PE_GetPartsFlashEndFrame(int parts_no, int state);
+@@ -283,6 +332,12 @@ int PE_GetPartsFlashEndFrame(int parts_no, int state);
  // flat.c
  bool PE_ExistsFlatFile(struct string *filename);
  bool PE_SetPartsFlat(int parts_no, struct string *filename, int state);
@@ -478,7 +540,7 @@ index 8dd17e2..1fd7eaf 100644
  bool PE_IsPartsFlatEnd(int parts_no, int state);
  int PE_GetPartsFlatCurrentFrameNumber(int parts_no, int state);
  bool PE_BackPartsFlatBeginFrame(int parts_no, int state);
-@@ -293,6 +336,8 @@ bool PE_StopPartsFlat(int parts_no, int state);
+@@ -293,6 +348,8 @@ bool PE_StopPartsFlat(int parts_no, int state);
  bool PE_StartPartsFlat(int parts_no, int state);
  bool PE_GoFramePartsFlat(int parts_no, int frame_no, int state);
  int PE_GetPartsFlatEndFrame(int parts_no, int state);
@@ -750,7 +812,7 @@ index 0000000..29b5b56
 +
 +#endif
 diff --git a/include/vm.h b/include/vm.h
-index 6e76e35..dffd05f 100644
+index 6e76e35..1fd9203 100644
 --- a/include/vm.h
 +++ b/include/vm.h
 @@ -17,11 +17,14 @@
@@ -838,8 +900,17 @@ index 6e76e35..dffd05f 100644
  extern int32_t call_stack_ptr;
  
  extern size_t instr_ptr;
+@@ -185,4 +213,8 @@ struct page *vm_load_image_comments(const char *key, const char *path, int *succ
+ int vm_write_image_comments(const char *key, const char *path, struct page *comments);
+ 
+ #endif /* VM_PRIVATE */
++/* Rebuild the parts input nesting from the call stack after a load. */
++unsigned vm_input_depth_from_stack(void);
++void vm_restore_input_depth(void);
++
+ #endif /* SYSTEM4_VM_H */
 diff --git a/include/vm/page.h b/include/vm/page.h
-index 139a7ff..d8623b4 100644
+index 139a7ff..3570409 100644
 --- a/include/vm/page.h
 +++ b/include/vm/page.h
 @@ -31,9 +31,10 @@ enum page_type {
@@ -873,20 +944,43 @@ index 139a7ff..d8623b4 100644
  void delete_struct(int no, int slot);
  void create_struct(int no, union vm_value *var);
  
+@@ -141,6 +147,7 @@ struct page *delegate_new_from_method(int obj, int fun);
+ int delegate_numof(struct page *page);
+ bool delegate_contains(struct page *dst, int obj, int fun);
+ void delegate_erase(struct page *page, int obj, int fun);
++void delegate_prune(struct page *page);
+ struct page *delegate_append(struct page *dst, int obj, int fun);
+ struct page *delegate_plusa(struct page *dst, struct page *add);
+ struct page *delegate_minusa(struct page *dst, struct page *minus);
 diff --git a/include/xsystem4.h b/include/xsystem4.h
-index 28c27fe..6423c81 100644
+index 28c27fe..b95b6d4 100644
 --- a/include/xsystem4.h
 +++ b/include/xsystem4.h
-@@ -20,6 +20,8 @@
+@@ -19,6 +19,9 @@
+ 
  #include <stddef.h>
  #include <stdbool.h>
- 
-+#include "time_scale.h"
++#include <stdio.h>
 +
++#include "time_scale.h"
+ 
  enum resume_save_format {
  	SAVE_FORMAT_JSON,
- 	SAVE_FORMAT_RSM,
-@@ -95,6 +97,7 @@ extern bool game_rance6_mg;
+@@ -78,6 +81,13 @@ char *gamedir_path(const char *path);
+ char *gamedir_path_icase(const char *path);
+ char *savedir_path(const char *path);
+ 
++/* Crash-safe file replacement for saves and config. The data is written to
++ * "<path>.tmp", flushed to disk, then renamed over <path>; on any failure the
++ * temporary file is removed and the previous <path> is left untouched. */
++FILE *atomic_file_open(const char *path, char **tmp_path);
++bool atomic_file_commit(FILE *fp, char *tmp_path, const char *path, bool ok);
++bool atomic_file_write(const char *path, const void *data, size_t size);
++
+ void get_date(int *year, int *month, int *mday, int *wday);
+ void get_time(int *hour, int *min, int *sec, int *ms);
+ 
+@@ -95,6 +105,7 @@ extern bool game_rance6_mg;
  extern bool game_rance7_mg;
  extern bool game_rance8;
  extern bool game_rance8_mg;
@@ -4674,6 +4768,184 @@ index 0000000..22aafb6
 +                    int vp_x, int vp_y, int vp_w, int vp_h);
 +
 +#endif
+diff --git a/src/apeg.c b/src/apeg.c
+new file mode 100644
+index 0000000..3c8d8d7
+--- /dev/null
++++ b/src/apeg.c
+@@ -0,0 +1,172 @@
++/* AliceSoft APEG movie container (see include/apeg.h). */
++
++#include <errno.h>
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <SDL.h>
++
++#include "system4.h"
++#include "system4/archive.h"
++#include "system4/file.h"
++#include "system4/little_endian.h"
++
++#include "apeg.h"
++#include "asset_manager.h"
++#include "mixer.h"
++#include "xsystem4.h"
++
++struct apeg_player {
++	int width, height;
++	int duration;           // ms, from the APEG header
++	struct channel *sound;  // SOND track, NULL when absent or unreadable
++	bool started;
++	int last_pos;           // movie clock (ms) at last_tick
++	uint32_t last_tick;
++};
++
++static void apeg_free_sound_data(struct archive_data *data)
++{
++	free(data->data);
++	free(data->name);
++	free(data);
++}
++
++static struct archive_ops apeg_sound_ops = { .free_data = apeg_free_sound_data };
++static struct archive apeg_sound_archive = { .ops = &apeg_sound_ops };
++
++static bool read_at(FILE *fp, long off, void *buf, size_t n)
++{
++	return fseek(fp, off, SEEK_SET) == 0 && fread(buf, 1, n, fp) == n;
++}
++
++struct apeg_player *apeg_open(const char *game_path, int mixer_no)
++{
++	char *path = gamedir_path_icase(game_path);
++	FILE *fp = path ? file_open_utf8(path, "rb") : NULL;
++	if (!fp) {
++		WARNING("%s: %s", path ? display_utf0(path) : game_path, strerror(errno));
++		free(path);
++		return NULL;
++	}
++
++	uint8_t hdr[0x98];
++	if (!read_at(fp, 0, hdr, sizeof(hdr)) || memcmp(hdr, "APEG", 4)) {
++		WARNING("%s: not an APEG movie", display_utf0(path));
++		fclose(fp);
++		free(path);
++		return NULL;
++	}
++	struct apeg_player *p = xcalloc(1, sizeof(*p));
++	p->width = LittleEndian_getW(hdr, 12);
++	p->height = LittleEndian_getW(hdr, 14);
++	p->duration = LittleEndian_getDW(hdr, 0x90);
++	if (p->width <= 0 || p->width > 4096 || p->height <= 0 || p->height > 4096) {
++		p->width = config.view_width;
++		p->height = config.view_height;
++	}
++
++	// The chunks before the first picture are APEG, TMNL and SOND.
++	long off = 0;
++	for (int i = 0; i < 8; i++) {
++		uint8_t ch[8];
++		if (!read_at(fp, off, ch, 8))
++			break;
++		uint32_t size = LittleEndian_getDW(ch, 4);
++		if (!memcmp(ch, "SOND", 4)) {
++			uint8_t *buf = size ? malloc(size) : NULL;
++			if (buf && fread(buf, 1, size, fp) == size) {
++				struct archive_data *d = xcalloc(1, sizeof(*d));
++				d->data = buf;
++				d->size = size;
++				d->name = xstrdup(game_path);
++				d->no = -1;
++				d->archive = &apeg_sound_archive;
++				p->sound = channel_open_archive_data(d, ASSET_SOUND, -1);
++				if (p->sound) {
++					channel_set_loop_count(p->sound, 1);
++					channel_set_group(p->sound, mixer_no);
++				}
++			} else {
++				free(buf);
++			}
++			break;
++		}
++		if (!memcmp(ch, "IPIC", 4) || !memcmp(ch, "PPIC", 4) || !memcmp(ch, "BPIC", 4))
++			break;
++		off += 8 + (long)size;
++	}
++	fclose(fp);
++
++	if (!p->sound)
++		WARNING("%s: no playable sound track", display_utf0(path));
++	if (p->duration <= 0)
++		p->duration = p->sound ? channel_get_time_length(p->sound) : 0;
++	NOTICE("APEG %s: %dx%d, %d ms%s", display_utf0(path), p->width, p->height,
++	       p->duration, p->sound ? "" : " (silent)");
++	free(path);
++	return p;
++}
++
++void apeg_close(struct apeg_player *p)
++{
++	if (!p)
++		return;
++	if (p->sound)
++		channel_close(p->sound);
++	free(p);
++}
++
++int apeg_width(struct apeg_player *p) { return p->width; }
++int apeg_height(struct apeg_player *p) { return p->height; }
++int apeg_duration(struct apeg_player *p) { return p->duration; }
++
++/* The movie clock follows the sound track while it plays (so it stops while
++ * the app is in the background and the audio device is paused) and the
++ * wall clock otherwise. */
++int apeg_position(struct apeg_player *p)
++{
++	if (!p->started)
++		return p->last_pos;
++	uint32_t now = SDL_GetTicks();
++	if (p->sound && channel_is_playing(p->sound))
++		p->last_pos = channel_get_pos(p->sound);
++	else
++		p->last_pos += (int)(now - p->last_tick);
++	p->last_tick = now;
++	if (p->last_pos > p->duration)
++		p->last_pos = p->duration;
++	return p->last_pos;
++}
++
++void apeg_seek(struct apeg_player *p, int msec)
++{
++	if (msec < 0)
++		msec = 0;
++	if (msec > p->duration)
++		msec = p->duration;
++	p->last_pos = msec;
++	p->last_tick = SDL_GetTicks();
++	if (p->sound)
++		channel_seek(p->sound, msec);
++}
++
++bool apeg_play(struct apeg_player *p, int msec)
++{
++	apeg_seek(p, msec);
++	p->started = true;
++#ifdef __ANDROID__
++	// The picture stream is AliceSoft's own codec; tell the player why the
++	// screen stays dark while the opening's sound track plays.
++	SDL_AndroidShowToast("动画画面暂不支持，正在播放原声，点击即可跳过", 1, -1, 0, 0);
++#endif
++	if (p->sound && msec < channel_get_time_length(p->sound))
++		channel_play(p->sound);
++	return true;
++}
++
++bool apeg_is_end(struct apeg_player *p)
++{
++	return p->started && apeg_position(p) >= p->duration;
++}
 diff --git a/src/asset_manager.c b/src/asset_manager.c
 index 1bca82c..7abc39b 100644
 --- a/src/asset_manager.c
@@ -7272,10 +7544,10 @@ index 99ebb4d..4800de0 100644
  
 diff --git a/src/hll/ADVLogList.inc b/src/hll/ADVLogList.inc
 new file mode 100644
-index 0000000..2104b52
+index 0000000..3512c07
 --- /dev/null
 +++ b/src/hll/ADVLogList.inc
-@@ -0,0 +1,125 @@
+@@ -0,0 +1,169 @@
 +/* Dialogue history used by the AFL backlog. SPDX-License-Identifier: GPL-2.0-or-later */
 +#include "iarray.h"
 +
@@ -7286,6 +7558,15 @@ index 0000000..2104b52
 +static struct adv_log_page *adv_log;
 +static int adv_log_count;
 +static bool adv_log_enabled = true, adv_log_new_page = true;
++/*
++ * One entry per displayed line. message::detail::Message appends text to the
++ * current line and message::detail::R (AddNewLine) ends it. The backlog joins
++ * a page's entries with "\n" itself (CBackLogUnit@CreateLog), and its own
++ * registration helper (Ａ＿剧情回顾登录) reports any entry that contains a line
++ * break as an error. Storing "\n" in the entries doubled every line in the
++ * backlog: only 13 of its 24 ruled lines were used and the last one was cut.
++ */
++static bool adv_log_line_open;
 +
 +static void adv_log_free_page(struct adv_log_page *p)
 +{
@@ -7296,7 +7577,7 @@ index 0000000..2104b52
 +static void ADVLog_Clear(void)
 +{
 +	for (int i=0;i<adv_log_count;i++) adv_log_free_page(&adv_log[i]);
-+	free(adv_log); adv_log=NULL; adv_log_count=0; adv_log_new_page=true;
++	free(adv_log); adv_log=NULL; adv_log_count=0; adv_log_new_page=true; adv_log_line_open=false;
 +}
 +static struct adv_log_page *adv_log_current(void)
 +{
@@ -7307,6 +7588,7 @@ index 0000000..2104b52
 +		}
 +		adv_log=xrealloc(adv_log,(adv_log_count+1)*sizeof(*adv_log));
 +		adv_log[adv_log_count++]=(struct adv_log_page){0}; adv_log_new_page=false;
++		adv_log_line_open=false;
 +	}
 +	return &adv_log[adv_log_count-1];
 +}
@@ -7315,16 +7597,17 @@ index 0000000..2104b52
 +	(void)window;
 +	if (!adv_log_enabled || !text->size) return;
 +	struct adv_log_page *p=adv_log_current();
++	if (adv_log_line_open && p->nr_text) {
++		// More text for the same line (names, variables, colour runs).
++		string_append(&p->text[p->nr_text-1],text);
++		return;
++	}
 +	p->text=xrealloc(p->text,(p->nr_text+1)*sizeof(*p->text));
 +	p->text[p->nr_text++]=string_dup(text);
++	adv_log_line_open=true;
 +}
-+static void ADVLog_AddNewLine(void)
-+{
-+	if (!adv_log_enabled || !adv_log_count || adv_log_new_page) return;
-+	struct adv_log_page *p=&adv_log[adv_log_count-1];
-+	if (p->nr_text) string_append_cstr(&p->text[p->nr_text-1],"\n",1);
-+}
-+static void ADVLog_AddNewPage(void) { if (adv_log_enabled) adv_log_new_page=true; }
++static void ADVLog_AddNewLine(void) { if (adv_log_enabled) adv_log_line_open=false; }
++static void ADVLog_AddNewPage(void) { if (adv_log_enabled) { adv_log_new_page=true; adv_log_line_open=false; } }
 +static void ADVLog_AddVoice(struct string *name, struct string *filter)
 +{
 +	if (!adv_log_enabled || !name->size) return;
@@ -7345,7 +7628,8 @@ index 0000000..2104b52
 +static bool ADVLog_Save(struct page **buffer)
 +{
 +	struct iarray_writer w; iarray_init_writer(&w,"XLOG");
-+	iarray_write(&w,1); iarray_write(&w,adv_log_enabled); iarray_write(&w,adv_log_new_page); iarray_write(&w,adv_log_count);
++	iarray_write(&w,2); iarray_write(&w,adv_log_enabled); iarray_write(&w,adv_log_new_page);
++	iarray_write(&w,adv_log_line_open); iarray_write(&w,adv_log_count);
 +	for (int i=0;i<adv_log_count;i++) {
 +		struct adv_log_page *p=&adv_log[i];
 +		iarray_write(&w,p->nr_text);
@@ -7356,14 +7640,40 @@ index 0000000..2104b52
 +	if (*buffer) { delete_page_vars(*buffer); free_page(*buffer); }
 +	*buffer=iarray_to_page(&w); iarray_free_writer(&w); return true;
 +}
++/*
++ * Version 1 logs (saved before the fix) hold one entry per AddText call with
++ * every R appended as "\n". Rebuild the page's lines from them; returns
++ * whether the page's last line was ended by R. '\n' is never a trail byte of
++ * SJIS or GBK, so splitting on the byte is safe.
++ */
++static bool adv_log_split_lines(struct adv_log_page *p)
++{
++	struct string *all=string_dup(&EMPTY_STRING);
++	for (int i=0;i<p->nr_text;i++) { string_append(&all,p->text[i]); free_string(p->text[i]); }
++	bool ended=!all->size || all->text[all->size-1]=='\n';
++	p->nr_text=0;
++	for (int start=0,i=0;i<=all->size;i++) {
++		if (i<all->size && all->text[i]!='\n') continue;
++		if (i>start) {
++			p->text=xrealloc(p->text,(p->nr_text+1)*sizeof(*p->text));
++			p->text[p->nr_text++]=make_string(all->text+start,i-start);
++		}
++		start=i+1;
++	}
++	free_string(all);
++	return ended;
++}
 +static bool ADVLog_Load(struct page **buffer)
 +{
 +	if (!*buffer || !(*buffer)->nr_vars) {
 +		ADVLog_Clear(); return true; // Older builds stored no log.
 +	}
 +	struct iarray_reader r;
-+	if (!iarray_init_reader(&r,*buffer,"XLOG") || iarray_read(&r)!=1) return false;
++	if (!iarray_init_reader(&r,*buffer,"XLOG")) return false;
++	int version=iarray_read(&r);
++	if (version!=1 && version!=2) return false;
 +	bool enabled=iarray_read(&r), new_page=iarray_read(&r);
++	bool line_open=version>=2 && iarray_read(&r);
 +	int count=iarray_read(&r);
 +	if (r.error || r.pos>r.size || count<0 || count>512 || (unsigned)count>(r.size-r.pos)/2) return false;
 +	struct adv_log_page *staged=xcalloc(count,sizeof(*staged));
@@ -7384,8 +7694,14 @@ index 0000000..2104b52
 +			if (r.error) goto invalid;
 +		}
 +	}
++	if (version==1) {
++		bool ended=true;
++		for (int i=0;i<count;i++) ended=adv_log_split_lines(&staged[i]);
++		line_open=count && !new_page && !ended;
++	}
 +	ADVLog_Clear();
 +	adv_log=staged; adv_log_count=count; adv_log_enabled=enabled; adv_log_new_page=new_page;
++	adv_log_line_open=line_open;
 +	return true;
 +invalid:
 +	for (int i=0;i<count;i++) adv_log_free_page(&staged[i]);
@@ -8885,10 +9201,10 @@ index 796a956..180550d 100644
  
  //static bool ChipmunkSpriteEngine_SP_SetCutCG(int sp_no, int cg_no, int cut_x, int cut_y, int cut_w, int cut_h);
 diff --git a/src/hll/CommonSystemData.c b/src/hll/CommonSystemData.c
-index e0115b2..7f75087 100644
+index e0115b2..6596efd 100644
 --- a/src/hll/CommonSystemData.c
 +++ b/src/hll/CommonSystemData.c
-@@ -15,86 +15,219 @@
+@@ -15,86 +15,205 @@
   */
  
  #include <stdint.h>
@@ -8977,24 +9293,10 @@ index e0115b2..7f75087 100644
 +	buffer_write_bytes(&out, (const uint8_t*)"XCSData\1", 8);
 +	buffer_write_int32(&out, 0);
 +	ht_foreach(csd_table(), csd_serialize, &out);
-+	char *temp = xmalloc(strlen(save_path) + 5);
-+	sprintf(temp, "%s.tmp", save_path);
-+	bool ok = file_write(temp, out.buf, out.index);
++	bool ok = atomic_file_write(save_path, out.buf, out.index);
 +	free(out.buf);
-+	if (ok) {
-+#ifdef _WIN32
-+		wchar_t *src = utf8_to_wchar(temp), *dst = utf8_to_wchar(save_path);
-+		ok = MoveFileExW(src, dst, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
-+		free(src); free(dst);
-+#else
-+		ok = rename(temp, save_path) == 0;
-+#endif
-+	}
-+	if (!ok) {
-+		remove_utf8(temp);
++	if (!ok)
 +		WARNING("Could not write CommonSystemData sidecar");
-+	}
-+	free(temp);
 +	return ok;
 +}
 +
@@ -9140,7 +9442,7 @@ index e0115b2..7f75087 100644
  		return true;
  	}
  	return false;
-@@ -102,9 +235,9 @@ static bool CommonSystemData_GetDataInt(struct string *name, int *value)
+@@ -102,9 +221,9 @@ static bool CommonSystemData_GetDataInt(struct string *name, int *value)
  
  static bool CommonSystemData_GetDataFloat(struct string *name, float *value)
  {
@@ -9153,7 +9455,7 @@ index e0115b2..7f75087 100644
  		return true;
  	}
  	return false;
-@@ -112,11 +245,11 @@ static bool CommonSystemData_GetDataFloat(struct string *name, float *value)
+@@ -112,11 +231,11 @@ static bool CommonSystemData_GetDataFloat(struct string *name, float *value)
  
  static bool CommonSystemData_GetDataString(struct string *name, struct string **value)
  {
@@ -9168,7 +9470,7 @@ index e0115b2..7f75087 100644
  		return true;
  	}
  	return false;
-@@ -124,9 +257,9 @@ static bool CommonSystemData_GetDataString(struct string *name, struct string **
+@@ -124,9 +243,9 @@ static bool CommonSystemData_GetDataString(struct string *name, struct string **
  
  static bool CommonSystemData_GetDataBool(struct string *name, bool *value)
  {
@@ -9181,6 +9483,74 @@ index e0115b2..7f75087 100644
  		return true;
  	}
  	return false;
+diff --git a/src/hll/File.c b/src/hll/File.c
+index 4836482..bf35e09 100644
+--- a/src/hll/File.c
++++ b/src/hll/File.c
+@@ -40,6 +40,10 @@ enum file_mode {
+ 
+ static FILE *current_file = NULL;
+ static enum file_mode current_mode;
++// Write mode goes through a temporary file renamed over the target on Close,
++// so config/save files are never left truncated (see atomic_file_open).
++static char *current_tmp_path = NULL;
++static char *current_path = NULL;
+ // Buffer for reading from / writing to binary format
+ static struct buffer contents;
+ // Buffer for reading from JSON format
+@@ -157,17 +161,31 @@ static int File_Open(struct string *filename, int type)
+ 	}
+ 	if (current_file) {
+ 		WARNING("Previously opened file wasn't closed");
+-		fclose(current_file);
++		if (current_tmp_path) {
++			// Never written: discard it and keep the previous file.
++			atomic_file_commit(current_file, current_tmp_path, current_path, false);
++			current_tmp_path = NULL;
++		} else {
++			fclose(current_file);
++		}
++		free(current_path);
++		current_path = NULL;
+ 	}
+ 
+ 	char *path = unix_path(filename->text);
+-	current_file = file_open_utf8(path, mode);
++	if (type == FILE_WRITE)
++		current_file = atomic_file_open(path, &current_tmp_path);
++	else
++		current_file = file_open_utf8(path, mode);
+ 	current_mode = type;
+ 	if (!current_file) {
+ 		WARNING("Failed to open file '%s': %s", display_utf0(path), strerror(errno));
++		free(path);
++	} else if (type == FILE_WRITE) {
++		current_path = path;
++	} else {
++		free(path);
+ 	}
+-
+-	free(path);
+ 	return !!current_file;
+ }
+ 
+@@ -195,8 +213,15 @@ static int File_Close(void)
+ 		}
+ 		free(buf);
+ 	}
+-	if (fclose(current_file))
++	if (current_tmp_path) {
++		if (!atomic_file_commit(current_file, current_tmp_path, current_path, r))
++			r = 0;
++		current_tmp_path = NULL;
++	} else if (fclose(current_file)) {
+ 		r = 0;
++	}
++	free(current_path);
++	current_path = NULL;
+ 	current_file = NULL;
+ 	if (json_contents)
+ 		free(json_contents);
 diff --git a/src/hll/FileOperation.c b/src/hll/FileOperation.c
 index 3672697..7c120a9 100644
 --- a/src/hll/FileOperation.c
@@ -10118,7 +10488,7 @@ index 7619555..4cc66d3 100644
  	    HLL_EXPORT(Swap, Math_Swap),
  	    HLL_EXPORT(SwapF, Math_SwapF),
 diff --git a/src/hll/MsgSkip.c b/src/hll/MsgSkip.c
-index 90e74ef..4abbe5d 100644
+index 90e74ef..7f999bb 100644
 --- a/src/hll/MsgSkip.c
 +++ b/src/hll/MsgSkip.c
 @@ -29,6 +29,7 @@
@@ -10129,7 +10499,7 @@ index 90e74ef..4abbe5d 100644
  #include "xsystem4.h"
  
  #include "hll.h"
-@@ -39,9 +40,12 @@ static int state = 0;
+@@ -39,20 +40,25 @@ static int state = 0;
  static char *save_path;
  static uint8_t *flags;
  static int nr_flags;
@@ -10138,14 +10508,24 @@ index 90e74ef..4abbe5d 100644
  
  static void msgskip_save(void)
  {
+-	FILE *f = file_open_utf8(save_path, "wb");
+-	if (!f)
+-		ERROR("fopen: '%s': %s", display_utf0(save_path), strerror(errno));
+-
+-	uint8_t header[4];
+-	LittleEndian_putDW(header, 0, nr_flags);
+-	fwrite(header, sizeof(header), 1, f);
+-	fwrite(flags, (nr_flags + 7) / 8, 1, f);
+-	fclose(f);
 +	if (!save_path || !flags) return;
- 	FILE *f = file_open_utf8(save_path, "wb");
- 	if (!f)
- 		ERROR("fopen: '%s': %s", display_utf0(save_path), strerror(errno));
-@@ -51,8 +55,11 @@ static void msgskip_save(void)
- 	fwrite(header, sizeof(header), 1, f);
- 	fwrite(flags, (nr_flags + 7) / 8, 1, f);
- 	fclose(f);
++	// Read flags decide what skip mode passes; never truncate them in place.
++	size_t size = 4 + (nr_flags + 7) / 8;
++	uint8_t *data = xmalloc(size);
++	LittleEndian_putDW(data, 0, nr_flags);
++	memcpy(data + 4, flags, size - 4);
++	if (!atomic_file_write(save_path, data, size))
++		WARNING("Could not save read flags to '%s'", display_utf0(save_path));
++	free(data);
 +	msgskip_adv_save();
  }
  
@@ -10154,7 +10534,7 @@ index 90e74ef..4abbe5d 100644
  #ifdef __ANDROID__
  static int msgskip_event_handler(possibly_unused void *user_data, SDL_Event *e) {
  	switch (e->type) {
-@@ -70,7 +77,7 @@ static int MsgSkip_Init(struct string *name)
+@@ -70,7 +76,7 @@ static int MsgSkip_Init(struct string *name)
  		return 1;
  
  	nr_flags = ain->nr_messages;
@@ -10163,7 +10543,7 @@ index 90e74ef..4abbe5d 100644
  
  	// Most games have system.GetSaveFolderName() prepended to `name`, but some
  	// games pass a constant string "SaveData\\MsgSkip.asd". If you pass it to
-@@ -90,9 +97,9 @@ static int MsgSkip_Init(struct string *name)
+@@ -90,9 +96,9 @@ static int MsgSkip_Init(struct string *name)
  				if (data[i])
  					flags[i >> 3] |= 0x80 >> (i & 7);
  			}
@@ -10175,7 +10555,7 @@ index 90e74ef..4abbe5d 100644
  				WARNING("Corrupted MsgSkip file '%s'", display_utf0(save_path));
  			} else if (n != nr_flags) {
  				WARNING("Incorrect size for MsgSkip file '%s'", display_utf0(save_path));
-@@ -105,27 +112,36 @@ static int MsgSkip_Init(struct string *name)
+@@ -105,27 +111,36 @@ static int MsgSkip_Init(struct string *name)
  		}
  		free(data);
  	}
@@ -10215,7 +10595,7 @@ index 90e74ef..4abbe5d 100644
  static void MsgSkip_SetEnable(int enable)
  {
  	enabled = !!enable;
-@@ -150,7 +166,7 @@ HLL_WARN_UNIMPLEMENTED( , void, MsgSkip, UseFlag, int use);
+@@ -150,7 +165,7 @@ HLL_WARN_UNIMPLEMENTED( , void, MsgSkip, UseFlag, int use);
  HLL_WARN_UNIMPLEMENTED(0, int,  MsgSkip, GetNumofMsg, void);
  HLL_WARN_UNIMPLEMENTED(0, int,  MsgSkip, GetNumofFlag, void);
  
@@ -10224,7 +10604,7 @@ index 90e74ef..4abbe5d 100644
  {
  	int libno = ain_get_library(ain, "MsgSkip");
  	assert(libno >= 0);
-@@ -161,8 +177,21 @@ static void MsgSkip_PreLink(void)
+@@ -161,8 +176,21 @@ static void MsgSkip_PreLink(void)
  	}
  }
  
@@ -10247,7 +10627,7 @@ index 90e74ef..4abbe5d 100644
  	    HLL_EXPORT(Init, MsgSkip_Init),
  	    HLL_EXPORT(UseFlag, MsgSkip_UseFlag),
  	    HLL_EXPORT(SetEnable, MsgSkip_SetEnable),
-@@ -171,6 +200,8 @@ HLL_LIBRARY(MsgSkip,
+@@ -171,6 +199,8 @@ HLL_LIBRARY(MsgSkip,
  	    HLL_EXPORT(GetEnable, MsgSkip_GetEnable),
  	    HLL_EXPORT(GetState, MsgSkip_GetState),
  	    HLL_EXPORT(GetFlag, MsgSkip_GetFlag),
@@ -10256,7 +10636,7 @@ index 90e74ef..4abbe5d 100644
  	    HLL_EXPORT(GetNumofMsg, MsgSkip_GetNumofMsg),
  	    HLL_EXPORT(GetNumofFlag, MsgSkip_GetNumofFlag));
  
-@@ -188,9 +219,7 @@ static int vmMsgSkip_Open(struct string *fname, possibly_unused int option)
+@@ -188,9 +218,7 @@ static int vmMsgSkip_Open(struct string *fname, possibly_unused int option)
  
  static void vmMsgSkip_Close(possibly_unused int handle)
  {
@@ -10269,7 +10649,7 @@ index 90e74ef..4abbe5d 100644
  static int vmMsgSkip_Query(possibly_unused int handle, int msgnum)
 diff --git a/src/hll/MsgSkipAdv.inc b/src/hll/MsgSkipAdv.inc
 new file mode 100644
-index 0000000..5ee6019
+index 0000000..0db1c69
 --- /dev/null
 +++ b/src/hll/MsgSkipAdv.inc
 @@ -0,0 +1,136 @@
@@ -10361,7 +10741,7 @@ index 0000000..5ee6019
 +			memcpy(data + at, p->name->text, p->name->size); at += p->name->size;
 +			memcpy(data + at, p->bits, p->size); at += p->size;
 +		}
-+	if (file_write(adv_skip_path, data, size)) adv_skip_dirty = false;
++	if (atomic_file_write(adv_skip_path, data, size)) adv_skip_dirty = false;
 +	else WARNING("Cannot save ADV read flags: %s", display_utf0(adv_skip_path));
 +	free(data);
 +}
@@ -11826,7 +12206,7 @@ index 0000000..806c4ab
 +	HLL_EXPORT(IsExistActivityPartsByName, PA_IsExistActivityPartsByName), \
 +	HLL_EXPORT(IsExistActivityPartsByNumber, PA_IsExistActivityPartsByNumber)
 diff --git a/src/hll/PartsEngine.c b/src/hll/PartsEngine.c
-index cb406a6..a07c34b 100644
+index cb406a6..d0229ef 100644
 --- a/src/hll/PartsEngine.c
 +++ b/src/hll/PartsEngine.c
 @@ -15,22 +15,157 @@
@@ -12605,7 +12985,7 @@ index cb406a6..a07c34b 100644
  	    HLL_TODO_EXPORT(SetMultiTextBoxSelectColor, PartsEngine_SetMultiTextBoxSelectColor),
  	    HLL_TODO_EXPORT(GetMultiTextBoxSelectR, PartsEngine_GetMultiTextBoxSelectR),
  	    HLL_TODO_EXPORT(GetMultiTextBoxSelectG, PartsEngine_GetMultiTextBoxSelectG),
-@@ -789,13 +1215,19 @@ HLL_LIBRARY(PartsEngine,
+@@ -789,13 +1215,26 @@ HLL_LIBRARY(PartsEngine,
  	    HLL_TODO_EXPORT(GetMultiTextBoxCGName, PartsEngine_GetMultiTextBoxCGName),
  	    HLL_EXPORT(SetLayoutBoxLayoutType, PE_SetLayoutBoxLayoutType),
  	    HLL_EXPORT(GetLayoutBoxLayoutType, PE_GetLayoutBoxLayoutType),
@@ -12624,10 +13004,17 @@ index cb406a6..a07c34b 100644
 +	    HLL_EXPORT(Parts_GetPartsCGDeform, PartsEngine_GetPartsCGDeform),
 +	    HLL_EXPORT(SetEnableSpeedUp, PartsEngine_SetEnableSpeedUp),
 +	    HLL_EXPORT(IsEnableSpeedUp, PartsEngine_IsEnableSpeedUp),
++	    HLL_EXPORT(CreatePartsMovie, PE_create_parts_movie),
++	    HLL_EXPORT(ReleasePartsMovie, PE_release_parts_movie),
++	    HLL_EXPORT(PlayPartsMovie, PE_play_parts_movie),
++	    HLL_EXPORT(SetMovieTime, PE_set_movie_time),
++	    HLL_EXPORT(IsEndPartsMovie, PE_is_end_parts_movie),
++	    HLL_EXPORT(GetPartsMovieEndTime, PE_get_parts_movie_end_time),
++	    HLL_EXPORT(GetPartsMovieCurrentTime, PE_get_parts_movie_current_time),
  	    HLL_EXPORT(Parts_SetPartsCGSurfaceArea, PE_SetPartsCGSurfaceArea),
  	    HLL_EXPORT(Parts_SetLoopCG, PE_SetLoopCG),
  	    HLL_EXPORT(Parts_SetLoopCGSurfaceArea, PE_SetLoopCGSurfaceArea),
-@@ -809,6 +1241,7 @@ HLL_LIBRARY(PartsEngine,
+@@ -809,6 +1248,7 @@ HLL_LIBRARY(PartsEngine,
  	    HLL_TODO_EXPORT(Parts_SetPartsTextCountReturn, PartsEngine_Parts_SetPartsTextCountReturn),
  	    HLL_TODO_EXPORT(Parts_GetPartsTextCountReturn, PartsEngine_Parts_GetPartsTextCountReturn),
  	    HLL_EXPORT(Parts_SetFont, PE_SetFont),
@@ -12635,7 +13022,7 @@ index cb406a6..a07c34b 100644
  	    HLL_EXPORT(Parts_SetPartsFontType, PE_SetPartsFontType),
  	    HLL_EXPORT(Parts_SetPartsFontSize, PE_SetPartsFontSize),
  	    HLL_EXPORT(Parts_SetPartsFontColor, PE_SetPartsFontColor),
-@@ -817,16 +1250,22 @@ HLL_LIBRARY(PartsEngine,
+@@ -817,16 +1257,22 @@ HLL_LIBRARY(PartsEngine,
  	    HLL_EXPORT(Parts_SetPartsFontEdgeWeight, PE_SetPartsFontEdgeWeight),
  	    HLL_EXPORT(Parts_SetTextCharSpace, PE_SetTextCharSpace),
  	    HLL_EXPORT(Parts_SetTextLineSpace, PE_SetTextLineSpace),
@@ -12659,7 +13046,7 @@ index cb406a6..a07c34b 100644
  	    HLL_EXPORT(Parts_SetNumeralShowComma, PE_SetNumeralShowComma),
  	    HLL_EXPORT(Parts_SetNumeralSpace, PE_SetNumeralSpace),
  	    HLL_EXPORT(Parts_SetNumeralLength, PE_SetNumeralLength),
-@@ -836,6 +1275,8 @@ HLL_LIBRARY(PartsEngine,
+@@ -836,6 +1282,8 @@ HLL_LIBRARY(PartsEngine,
  	    HLL_EXPORT(Parts_SetPartsCGDetectionSize, PE_SetPartsCGDetectionSize),
  	    HLL_TODO_EXPORT(Parts_SetPartsCGDetectionSurfaceArea, PartsEngine_Parts_SetPartsCGDetectionSurfaceArea),
  	    HLL_EXPORT(Parts_SetPartsFlat, PE_SetPartsFlat),
@@ -12668,7 +13055,7 @@ index cb406a6..a07c34b 100644
  	    HLL_EXPORT(Parts_IsPartsFlatEnd, PE_IsPartsFlatEnd),
  	    HLL_EXPORT(Parts_GetPartsFlatCurrentFrameNumber, PE_GetPartsFlatCurrentFrameNumber),
  	    HLL_EXPORT(Parts_BackPartsFlatBeginFrame, PE_BackPartsFlatBeginFrame),
-@@ -848,7 +1289,12 @@ HLL_LIBRARY(PartsEngine,
+@@ -848,7 +1296,12 @@ HLL_LIBRARY(PartsEngine,
  	    HLL_EXPORT(Parts_GetPartsFlatEndFrame, PE_GetPartsFlatEndFrame),
  	    HLL_EXPORT(Parts_ExistsFlatFile, PE_ExistsFlatFile),
  	    HLL_TODO_EXPORT(Parts_GetPartsFlatDataInfo, PartsEngine_Parts_GetPartsFlatDataInfo),
@@ -12682,7 +13069,7 @@ index cb406a6..a07c34b 100644
  	    HLL_TODO_EXPORT(Parts_ChangeFlatSound, PartsEngine_Parts_ChangeFlatSound),
  	    HLL_EXPORT(Parts_ClearPartsConstructionProcess, PE_ClearPartsConstructionProcess),
  	    HLL_EXPORT(Parts_AddCreateToPartsConstructionProcess, PE_AddCreateToPartsConstructionProcess),
-@@ -867,6 +1313,9 @@ HLL_LIBRARY(PartsEngine,
+@@ -867,6 +1320,9 @@ HLL_LIBRARY(PartsEngine,
  	    HLL_TODO_EXPORT(Parts_AddMulFilterToPartsConstructionProcess, PartsEngine_Parts_AddMulFilterToPartsConstructionProcess),
  	    HLL_TODO_EXPORT(Parts_AddDrawLineToPartsConstructionProcess, PartsEngine_Parts_AddDrawLineToPartsConstructionProcess),
  	    HLL_EXPORT(Parts_BuildPartsConstructionProcess, PE_BuildPartsConstructionProcess),
@@ -12692,15 +13079,19 @@ index cb406a6..a07c34b 100644
  	    HLL_EXPORT(Parts_AddDrawTextToPartsConstructionProcess, PE_AddDrawTextToPartsConstructionProcess),
  	    HLL_EXPORT(Parts_AddCopyTextToPartsConstructionProcess, PE_AddCopyTextToPartsConstructionProcess),
  	    HLL_EXPORT(Parts_SetPartsConstructionSurfaceArea, PE_SetPartsConstructionSurfaceArea),
-@@ -878,6 +1327,7 @@ HLL_LIBRARY(PartsEngine,
+@@ -877,7 +1333,11 @@ HLL_LIBRARY(PartsEngine,
+ 	    HLL_EXPORT(Parts_SetClickable, PE_SetClickable),
  	    HLL_TODO_EXPORT(Parts_SetResetTimerByChangeInputStatus, PartsEngine_Parts_SetResetTimerByChangeInputStatus),
  	    HLL_EXPORT(Parts_SetDrag, PE_SetDrag),
++	    HLL_EXPORT(Parts_SetSwipeType, PE_SetSwipeType),
++	    HLL_EXPORT(Parts_GetSwipeType, PE_GetSwipeType),
++	    HLL_EXPORT(Parts_StopSwipe, PE_StopSwipe),
  	    HLL_EXPORT(Parts_SetParentPartsNumber, PE_SetParentPartsNumber),
 +	    HLL_EXPORT(AddChild, PartsEngine_AddChild),
  	    HLL_EXPORT(Parts_SetInputState, PE_SetInputState),
  	    HLL_EXPORT(Parts_SetOnCursorShowLinkPartsNumber, PE_SetOnCursorShowLinkPartsNumber),
  	    HLL_TODO_EXPORT(Parts_SetSoundNumber, PartsEngine_Parts_SetSoundNumber),
-@@ -886,7 +1336,7 @@ HLL_LIBRARY(PartsEngine,
+@@ -886,7 +1346,7 @@ HLL_LIBRARY(PartsEngine,
  	    HLL_EXPORT(Parts_GetPartsClickable, PE_GetPartsClickable),
  	    HLL_TODO_EXPORT(Parts_GetResetTimerByChangeInputStatus, PartsEngine_Parts_GetResetTimerByChangeInputStatus),
  	    HLL_TODO_EXPORT(Parts_GetPartsDrag, PartsEngine_Parts_GetPartsDrag),
@@ -12709,7 +13100,7 @@ index cb406a6..a07c34b 100644
  	    HLL_EXPORT(Parts_GetInputState, PE_GetInputState),
  	    HLL_TODO_EXPORT(Parts_GetOnCursorShowLinkPartsNumber, PartsEngine_Parts_GetOnCursorShowLinkPartsNumber),
  	    HLL_TODO_EXPORT(Parts_GetSoundNumber, PartsEngine_Parts_GetSoundNumber),
-@@ -923,8 +1373,13 @@ static void PartsEngine_PreLink(void)
+@@ -923,8 +1383,13 @@ static void PartsEngine_PreLink(void)
  		static_library_replace(&lib_PartsEngine, "Update",
  				PartsEngine_Update_Pascha3PC);
  	}
@@ -13240,10 +13631,10 @@ index 2d7560a..0088563 100644
  	    HLL_EXPORT(IsExistPlayingManual, SystemService_IsExistPlayingManual),
  	    HLL_EXPORT(IsExistSystemMessage, SystemService_IsExistSystemMessage),
 diff --git a/src/hll/VSFile.c b/src/hll/VSFile.c
-index c62f75b..cfff4c7 100644
+index c62f75b..8451bb6 100644
 --- a/src/hll/VSFile.c
 +++ b/src/hll/VSFile.c
-@@ -19,12 +19,14 @@
+@@ -19,16 +19,35 @@
  #include <string.h>
  #include <errno.h>
  
@@ -13258,7 +13649,36 @@ index c62f75b..cfff4c7 100644
  #include "xsystem4.h"
  
  static bool vs_read = false;
-@@ -82,7 +84,11 @@ static bool vsf_write_type(enum vsf_valuetype type)
+ static FILE *vs_file = NULL;
++// Writes go to "<file>.tmp" and replace the target on Close (atomic_file_open):
++// Rance 10's save slot headers (01.vsf...) must never be left half written.
++static char *vs_tmp_path = NULL, *vs_path = NULL;
++static bool vs_write_ok = true;
++
++static void vsfile_abort_write(void)
++{
++	if (vs_tmp_path) {
++		atomic_file_commit(vs_file, vs_tmp_path, vs_path, false);
++		vs_tmp_path = NULL;
++	} else if (vs_file) {
++		fclose(vs_file);
++	}
++	free(vs_path);
++	vs_path = NULL;
++	vs_file = NULL;
++}
+ 
+ enum vsf_valuetype {
+ 	VSF_BYTE = 0,
+@@ -41,6 +60,7 @@ static bool vsf_write(const void *ptr, size_t size)
+ {
+ 	if (fwrite(ptr, size, 1, vs_file) != 1) {
+ 		WARNING("fwrite failed: %s", strerror(errno));
++		vs_write_ok = false;
+ 		return false;
+ 	}
+ 	return true;
+@@ -82,17 +102,29 @@ static bool vsf_write_type(enum vsf_valuetype type)
  
  static bool vsfile_open(struct string *filename, bool read)
  {
@@ -13270,7 +13690,54 @@ index c62f75b..cfff4c7 100644
 +	char *u = ain->version >= 11 ? savedir_path(filename->text) : gamedir_path(filename->text);
  	if (vs_file) {
  		WARNING("VSFile is already opened");
+-		fclose(vs_file);
++		vsfile_abort_write();
+ 	}
+ 	vs_read = read;
+-	vs_file = file_open_utf8(u, read ? "rb" : "wb");
++	vs_write_ok = true;
++	if (read)
++		vs_file = file_open_utf8(u, "rb");
++	else
++		vs_file = atomic_file_open(u, &vs_tmp_path);
+ 	if (!vs_file) {
+ 		WARNING("Failed to open '%s': %s", display_utf0(u), strerror(errno));
++		free(u);
++	} else if (!read) {
++		vs_path = u;
++	} else {
++		free(u);
+ 	}
+-	free(u);
+ 	return !!vs_file;
+ }
+ 
+@@ -101,8 +133,7 @@ static bool VSFile_OpenForWrite(struct string *filename)
+ 	if (!vsfile_open(filename, false))
+ 		return false;
+ 	if (!vsf_write("VSF\0\0\0\0", 8)) {
+-		fclose(vs_file);
+-		vs_file = NULL;
++		vsfile_abort_write();
+ 		return false;
+ 	}
+ 	return true;
+@@ -123,7 +154,14 @@ static bool VSFile_OpenForRead(struct string *filename)
+ 
+ static bool VSFile_Close(void)
+ {
+-	if (vs_file) {
++	if (vs_file && vs_tmp_path) {
++		bool ok = atomic_file_commit(vs_file, vs_tmp_path, vs_path, vs_write_ok);
++		vs_tmp_path = NULL;
++		free(vs_path);
++		vs_path = NULL;
++		vs_file = NULL;
++		return ok;
++	} else if (vs_file) {
  		fclose(vs_file);
+ 		vs_file = NULL;
+ 	} else {
 diff --git a/src/hll/hll.h b/src/hll/hll.h
 index e1fbea2..1ee5708 100644
 --- a/src/hll/hll.h
@@ -13753,6 +14220,41 @@ index a4cdcdc..652f281 100644
  
  struct vm_anime {
  	int cg;
+diff --git a/src/hll/vmFile.c b/src/hll/vmFile.c
+index 0c73a0b..b2952ef 100644
+--- a/src/hll/vmFile.c
++++ b/src/hll/vmFile.c
+@@ -38,6 +38,7 @@ enum vm_file_mode {
+ struct vm_file {
+ 	char *path;
+ 	FILE *fp;
++	char *tmp_path;  // write mode: renamed over path on Close
+ 	struct buffer buf;
+ };
+ 
+@@ -167,7 +168,7 @@ static int vmFile_Open(struct string *string, int type)
+ 		}
+ 		buffer_init(&vf->buf, data, len);
+ 	} else if (type == VM_FILE_WRITE) {
+-		vf->fp = file_open_utf8(path, "wb");
++		vf->fp = atomic_file_open(path, &vf->tmp_path);
+ 		if (!vf->fp) {
+ 			WARNING("Failed to open file '%s': %s", display_utf0(path), strerror(errno));
+ 			free(path);
+@@ -191,10 +192,10 @@ static void vmFile_Close(int handle)
+ 		return;
+ 
+ 	if (vf->fp) {  // write mode
+-		if (fwrite(vf->buf.buf, vf->buf.index, 1, vf->fp) != 1) {
++		bool ok = !vf->buf.index || fwrite(vf->buf.buf, vf->buf.index, 1, vf->fp) == 1;
++		if (!ok)
+ 			WARNING("%s: fwrite failed: %s", display_utf0(vf->path), strerror(errno));
+-		}
+-		fclose(vf->fp);
++		atomic_file_commit(vf->fp, vf->tmp_path, vf->path, ok);
+ 	}
+ 	free(vf->buf.buf);
+ 	free(vf->path);
 diff --git a/src/hll/vmGraph.c b/src/hll/vmGraph.c
 index 88314ff..6d2015a 100644
 --- a/src/hll/vmGraph.c
@@ -13992,7 +14494,7 @@ index 86bcf73..90c2928 100644
  				}
  			}
 diff --git a/src/meson.build b/src/meson.build
-index 78414bb..6969c7d 100644
+index 78414bb..9de2d36 100644
 --- a/src/meson.build
 +++ b/src/meson.build
 @@ -5,12 +5,14 @@ version_h = vcs_tag(command : ['git', 'describe', 'HEAD'],
@@ -14018,17 +14520,18 @@ index 78414bb..6969c7d 100644
              'resume.c',
              'savedata.c',
              'scene.c',
-@@ -33,6 +36,9 @@ xsystem4 = [version_h,
+@@ -33,6 +36,10 @@ xsystem4 = [version_h,
              'swf.c',
              'system4.c',
              'text.c',
 +            'time_scale.c',
 +            'frame_profile.c',
++            'apeg.c',
 +            'trace_log.c',
              'util.c',
              'video.c',
              'vm.c',
-@@ -82,6 +88,8 @@ xsystem4 = [version_h,
+@@ -82,6 +89,8 @@ xsystem4 = [version_h,
              'hll/AliceLogo5.c',
              'hll/AnteaterADVEngine.c',
              'hll/Array.c',
@@ -14167,7 +14670,7 @@ index e90024a..b4775c7 100644
  	if (mc->voice >= 0)
  		mixer_stream_set_volume(mc->voice, volume);
 diff --git a/src/page.c b/src/page.c
-index 250653f..ef56f28 100644
+index 250653f..cec02be 100644
 --- a/src/page.c
 +++ b/src/page.c
 @@ -21,6 +21,7 @@
@@ -14392,15 +14895,96 @@ index 250653f..ef56f28 100644
  	return dst;
  }
  
-@@ -774,6 +829,7 @@ void delegate_erase(struct page *page, int obj, int fun)
+@@ -766,25 +821,81 @@ int delegate_numof(struct page *page)
+ 	return page->nr_vars / 3;
+ }
+ 
++/*
++ * A delegate entry is (target, function, sequence). Method targets are weak:
++ * the object can be freed while still registered and its heap slot reused by
++ * anything, which the sequence number detects. A closure environment is owned
++ * by the entry (one reference, taken when the entry was added), but only while
++ * the sequence still matches; after that the slot belongs to someone else.
++ */
++static bool delegate_entry_current(struct page *page, int i)
++{
++	return heap_get_seq(page->values[i].i) == (uint32_t)page->values[i+2].i;
++}
++
++static bool delegate_entry_live(struct page *page, int i)
++{
++	if (!delegate_entry_current(page, i))
++		return false;
++	int target = page->values[i].i;
++	struct page *env = page_index_valid(target) ? heap_get_page(target) : NULL;
++	if (env && env->type == CLOSURE_PAGE && env->local.struct_ptr != -1)
++		return page_index_valid(env->local.struct_ptr)
++			&& heap_get_seq(env->local.struct_ptr) == env->local.struct_seq;
++	return true;
++}
++
++static void delegate_remove_entry(struct page *page, int i)
++{
++	int target = page->values[i].i;
++	// Releasing a stale entry's slot would drop a reference held by whatever
++	// reused it, e.g. another callback's closure, which then silently stops
++	// being called (Rance 10 lost the base camp quest choice this way).
++	if (delegate_entry_current(page, i) && delegate_is_closure(target))
++		heap_unref(target);
++	for (int j = i+3; j < page->nr_vars; j += 3) {
++		page->values[j-3].i = page->values[j+0].i;
++		page->values[j-2].i = page->values[j+1].i;
++		page->values[j-1].i = page->values[j+2].i;
++	}
++	page->nr_vars -= 3;
++}
++
+ void delegate_erase(struct page *page, int obj, int fun)
+ {
+ 	if (!page)
+ 		return;
+ 	if (page->type != DELEGATE_PAGE)
  		VM_ERROR("Not a delegate");
++	// Only the entry registered by the object now in that slot; a stale
++	// entry left by a freed object must not stand in for it.
  	for (int i = 0; i < page->nr_vars; i += 3) {
- 		if (page->values[i].i == obj && page->values[i+1].i == fun) {
-+			if (heap_get_seq(obj) == page->values[i+2].i && delegate_is_closure(obj)) heap_unref(obj);
- 			for (int j = i+3; j < page->nr_vars; j += 3) {
- 				page->values[j-3].i = page->values[j+0].i;
- 				page->values[j-2].i = page->values[j+1].i;
-@@ -823,6 +879,8 @@ struct page *delegate_clear(struct page *page)
+-		if (page->values[i].i == obj && page->values[i+1].i == fun) {
+-			for (int j = i+3; j < page->nr_vars; j += 3) {
+-				page->values[j-3].i = page->values[j+0].i;
+-				page->values[j-2].i = page->values[j+1].i;
+-				page->values[j-1].i = page->values[j+2].i;
+-			}
+-			page->nr_vars -= 3;
++		if (page->values[i].i == obj && page->values[i+1].i == fun
++				&& delegate_entry_current(page, i)) {
++			delegate_remove_entry(page, i);
+ 			break;
+ 		}
+ 	}
+ }
+ 
++/*
++ * Drop the entries that can no longer be called. A v12 call iterates a
++ * snapshot, so without this the live list would keep every stale entry.
++ */
++void delegate_prune(struct page *page)
++{
++	if (!page)
++		return;
++	if (page->type != DELEGATE_PAGE)
++		VM_ERROR("Not a delegate");
++	for (int i = 0; i < page->nr_vars;) {
++		if (delegate_entry_live(page, i))
++			i += 3;
++		else
++			delegate_remove_entry(page, i);
++	}
++}
++
+ struct page *delegate_plusa(struct page *dst, struct page *add)
+ {
+ 	if (!add)
+@@ -823,6 +934,8 @@ struct page *delegate_clear(struct page *page)
  	if (page->type != DELEGATE_PAGE)
  		VM_ERROR("Not a delegate");
  	for (int i = 0; i < page->nr_vars; i += 3) {
@@ -14409,26 +14993,26 @@ index 250653f..ef56f28 100644
  		page->values[i].i = -1;
  		page->values[i+1].i = -1;
  		page->values[i+2].i = 0;
-@@ -839,11 +897,18 @@ bool delegate_get(struct page *page, int i, int *obj_out, int *fun_out)
+@@ -839,17 +952,12 @@ bool delegate_get(struct page *page, int i, int *obj_out, int *fun_out)
  	if (page->type != DELEGATE_PAGE)
  		VM_ERROR("Not a delegate");
  	while (i*3 < page->nr_vars) {
 -		if (heap_get_seq(page->values[i*3].i) == page->values[i*3+2].i) {
-+		int target = page->values[i*3].i;
-+		bool live = heap_get_seq(target) == page->values[i*3+2].i;
-+		struct page *env = page_index_valid(target) ? heap_get_page(target) : NULL;
-+		if (live && env && env->type == CLOSURE_PAGE && env->local.struct_ptr != -1)
-+			live = page_index_valid(env->local.struct_ptr)
-+				&& heap_get_seq(env->local.struct_ptr) == env->local.struct_seq;
-+		if (live) {
++		if (delegate_entry_live(page, i*3)) {
  			*obj_out = page->values[i*3].i;
  			*fun_out = page->values[i*3+1].i;
  			return true;
  		}
-+		if (env && env->type == CLOSURE_PAGE) heap_unref(target);
- 		for (int j = (i + 1) * 3; j < page->nr_vars; j += 3) {
- 			page->values[j-3].i = page->values[j+0].i;
- 			page->values[j-2].i = page->values[j+1].i;
+-		for (int j = (i + 1) * 3; j < page->nr_vars; j += 3) {
+-			page->values[j-3].i = page->values[j+0].i;
+-			page->values[j-2].i = page->values[j+1].i;
+-			page->values[j-1].i = page->values[j+2].i;
+-		}
+-		page->nr_vars -= 3;
++		delegate_remove_entry(page, i*3);
+ 	}
+ 	return false;
+ }
 diff --git a/src/parts/construction.c b/src/parts/construction.c
 index a3a7285..99b36b5 100644
 --- a/src/parts/construction.c
@@ -15499,17 +16083,20 @@ index bddf7b1..edff687 100644
  {
  	if (!parts_state_valid(--state))
 diff --git a/src/parts/input.c b/src/parts/input.c
-index 2ddeda3..761f507 100644
+index 2ddeda3..ebad2da 100644
 --- a/src/parts/input.c
 +++ b/src/parts/input.c
-@@ -14,25 +14,42 @@
+@@ -14,25 +14,46 @@
   * along with this program; if not, see <http://gnu.org/licenses/>.
   */
  
 +#include <math.h>
++#include <stdlib.h>
 +#include <string.h>
  #include "system4.h"
 +#include "system4/ain.h"
++#include "system4/instructions.h"
++#include "system4/little_endian.h"
 +#include "system4/string.h"
 +#include "system4/utfsjis.h"
  
@@ -15522,6 +16109,7 @@ index 2ddeda3..761f507 100644
 +#include "message_window.h"
 +#include "rotation.h"
 +#include "parts.h"
++#include "trace_log.h"
  
  // true between calls to BeginClick and EndClick
  bool parts_began_click = false;
@@ -15545,10 +16133,17 @@ index 2ddeda3..761f507 100644
  
  // drag state
  static struct parts *drag_parts = NULL;
-@@ -41,9 +58,116 @@ static Point drag_initial_pos;
+@@ -40,10 +61,123 @@ static bool is_dragging = false;
+ static Point drag_initial_pos;
  static Point drag_start_cursor;
  static struct parts *drop_target = NULL;
- 
++// Swipe gesture state (see swipe_target_at).
++static struct parts *swipe_parts;
++static bool swipe_active, swipe_inertia;
++static Point swipe_begin;
++static float swipe_fx, swipe_fy, swipe_vx, swipe_vy;
++static uint32_t swipe_tick;
++
 +static int textbox_focus_no;
 +static bool textbox_composing, textbox_select_all;
 +
@@ -15627,7 +16222,7 @@ index 2ddeda3..761f507 100644
 +	register_key_handler(parts_textbox_key);
 +	SDL_StartTextInput();
 +}
-+
+ 
  static bool parts_hittest(struct parts *parts, int state, Point pos)
  {
  	Rectangle hitbox = parts->states[state].common.hitbox;
@@ -15662,7 +16257,7 @@ index 2ddeda3..761f507 100644
  	if (parts->parent) {
  		hitbox.x += parts->parent->global.pos.x;
  		hitbox.y += parts->parent->global.pos.y;
-@@ -60,15 +184,61 @@ static void drag_state_reset(void)
+@@ -60,15 +194,135 @@ static void drag_state_reset(void)
  
  void parts_input_reset_drag(struct parts *parts)
  {
@@ -15671,8 +16266,13 @@ index 2ddeda3..761f507 100644
  		drag_state_reset();
  	else if (parts == drop_target)
  		drop_target = NULL;
- }
- 
++	if (parts == swipe_parts) {
++		// The part is going away: nobody is left to receive SwipeEnd.
++		swipe_parts = NULL;
++		swipe_active = swipe_inertia = false;
++	}
++}
++
 +/*
 + * Modal scenes. Rance 10 opens every scene (confirmation dialogs, help pages,
 + * menus) in a new controller inserted above the active one, and its message
@@ -15695,6 +16295,75 @@ index 2ddeda3..761f507 100644
 +	return active < 0 || own < 0 || own >= active;
 +}
 +
++/*
++ * Swipe (Rance 10). Parts with a swipe type (list scroll areas made by
++ * Parts@InitAsSwipeBase, the backlog's SYS_滑动范围) receive SwipeBegin,
++ * Swiping(begin x, begin y, x, y, inertia) and SwipeEnd; ScrollBase@OnSwiping
++ * moves the list by (y - begin y). A press arms the frontmost swipe part
++ * under it. The swipe begins once the finger travels SWIPE_SLOP along an
++ * allowed axis; that cancels the press's click (and the WholeMouse click the
++ * backlog closes on), so lifting the finger does not also hit the item under
++ * it. A fling keeps sending inertial Swiping messages until it slows down.
++ */
++#define SWIPE_SLOP 16
++#define SWIPE_FLING_MIN 0.25f  // px/ms at release
++#define SWIPE_STOP_SPEED 0.03f // px/ms
++#define SWIPE_DECAY 0.996f     // velocity factor per ms
++#define SWIPE_HOLD_MS 80       // a pause before release cancels the fling
++
++static bool swipe_axis_x(const struct parts *p) { return p->swipe_type == 1 || p->swipe_type == 3; }
++static bool swipe_axis_y(const struct parts *p) { return p->swipe_type == 1 || p->swipe_type == 2; }
++
++static void swipe_finish(void)
++{
++	if (swipe_parts && (swipe_active || swipe_inertia))
++		parts_msg_push(swipe_parts, PARTS_MSG_SWIPE_END, "");
++	swipe_parts = NULL;
++	swipe_active = swipe_inertia = false;
++	swipe_vx = swipe_vy = 0;
++}
++
++static bool parts_tree_visible(struct parts *parts)
++{
++	for (struct parts *p = parts; p; p = p->parent)
++		if (!p->global.show || !p->global.alpha)
++			return false;
++	return true;
++}
++
++static struct parts *swipe_target_at(Point pos)
++{
++	struct parts *parts;
++	PARTS_LIST_FOREACH_REVERSE(parts) {
++		if (parts->swipe_type < 1 || parts->swipe_type > 3 || parts->back_scene
++				|| !parts->input_enabled || !parts_controller_receives_input(parts)
++				|| !parts_tree_visible(parts)
++				|| !parts_hittest(parts, PARTS_STATE_DEFAULT, pos))
++			continue;
++		return parts;
++	}
++	return NULL;
++}
++
++void PE_SetSwipeType(int parts_no, int type)
++{
++	struct parts *parts = parts_get(parts_no);
++	parts->swipe_type = type;
++	if (parts == swipe_parts && (type < 1 || type > 3))
++		swipe_finish();
++}
++
++int PE_GetSwipeType(int parts_no)
++{
++	struct parts *parts = parts_try_get(parts_no);
++	return parts ? parts->swipe_type : 0;
++}
++
++void PE_StopSwipe(void)
++{
++	swipe_finish();
+ }
+ 
  static void parts_update_mouse(struct parts *parts, Point cur_pos, bool cur_clicking,
  		int passed_time, bool *hover_consumed, bool *click_consumed)
  {
@@ -15724,7 +16393,7 @@ index 2ddeda3..761f507 100644
  	// Always use DEFAULT state hitbox regardless of the current display state.
  	bool is_hovered = parts_hittest(parts, PARTS_STATE_DEFAULT, cur_pos)
  		&& !*hover_consumed;
-@@ -86,6 +256,9 @@ static void parts_update_mouse(struct parts *parts, Point cur_pos, bool cur_clic
+@@ -86,6 +340,9 @@ static void parts_update_mouse(struct parts *parts, Point cur_pos, bool cur_clic
  
  	if (!parts_began_click)
  		return;
@@ -15734,7 +16403,7 @@ index 2ddeda3..761f507 100644
  
  	if (is_hovered && !was_hovered) {
  		parts_msg_push(parts, PARTS_MSG_MOUSE_ENTER, "ii", cur_pos.x, cur_pos.y);
-@@ -112,7 +285,7 @@ static void parts_update_mouse(struct parts *parts, Point cur_pos, bool cur_clic
+@@ -112,7 +369,7 @@ static void parts_update_mouse(struct parts *parts, Point cur_pos, bool cur_clic
  		return;
  	}
  
@@ -15743,7 +16412,7 @@ index 2ddeda3..761f507 100644
  	if (!click_eligible || *click_consumed) {
  		if (!was_hovered)
  			audio_play_sound(parts->on_cursor_sound);
-@@ -123,6 +296,8 @@ static void parts_update_mouse(struct parts *parts, Point cur_pos, bool cur_clic
+@@ -123,6 +380,8 @@ static void parts_update_mouse(struct parts *parts, Point cur_pos, bool cur_clic
  	// click down: first eligible part captures the click
  	if (cur_clicking && !prev_clicking) {
  		click_down_parts = parts->no;
@@ -15752,7 +16421,7 @@ index 2ddeda3..761f507 100644
  		*click_consumed = true;
  
  		drag_parts = parts;
-@@ -131,11 +306,18 @@ static void parts_update_mouse(struct parts *parts, Point cur_pos, bool cur_clic
+@@ -131,11 +390,18 @@ static void parts_update_mouse(struct parts *parts, Point cur_pos, bool cur_clic
  
  		// KEY_TRIGGER message fires on press transition
  		parts_msg_push(parts, PARTS_MSG_KEY_TRIGGER, "i", VK_LBUTTON);
@@ -15771,7 +16440,7 @@ index 2ddeda3..761f507 100644
  	}
  
  	if (cur_clicking && click_down_parts == parts->no) {
-@@ -152,6 +334,8 @@ static void parts_update_mouse(struct parts *parts, Point cur_pos, bool cur_clic
+@@ -152,6 +418,8 @@ static void parts_update_mouse(struct parts *parts, Point cur_pos, bool cur_clic
  			&& click_down_parts == parts->no) {
  		audio_play_sound(parts->on_click_sound);
  		clicked_parts = parts->no;
@@ -15780,7 +16449,7 @@ index 2ddeda3..761f507 100644
  
  		parts_msg_push(parts, PARTS_MSG_MOUSE_CLICK,
  				"iii", cur_pos.x, cur_pos.y, VK_LBUTTON);
-@@ -159,11 +343,81 @@ static void parts_update_mouse(struct parts *parts, Point cur_pos, bool cur_clic
+@@ -159,11 +427,91 @@ static void parts_update_mouse(struct parts *parts, Point cur_pos, bool cur_clic
  	}
  }
  
@@ -15831,6 +16500,16 @@ index 2ddeda3..761f507 100644
 +		bool pressed[3];
 +		for (int i = 0; i < 3; i++)
 +			pressed[i] = mouse_take_press(buttons[i], &press_pos[i].x, &press_pos[i].y);
++		if (parts_began_click && (pressed[0] || (cur_clicking && !prev_clicking))) {
++			// A new touch stops a fling and arms the swipe part under it.
++			Point at = pressed[0] ? press_pos[0] : cur_pos;
++			swipe_finish();
++			swipe_parts = swipe_target_at(at);
++			swipe_begin = at;
++			swipe_fx = at.x;
++			swipe_fy = at.y;
++			swipe_tick = SDL_GetTicks();
++		}
 +		if (pressed[0] && !prev_clicking && parts_began_click) {
 +			// A busy frame can receive movement before it samples the press.
 +			bool hover = false, click = false;
@@ -15862,7 +16541,7 @@ index 2ddeda3..761f507 100644
  
  	bool hover_consumed = false;
  	bool click_consumed = false;
-@@ -173,64 +427,85 @@ void PE_UpdateInputState(int passed_time)
+@@ -173,64 +521,138 @@ void PE_UpdateInputState(int passed_time)
  		parts_update_mouse(parts, cur_pos, cur_clicking, passed_time,
  				&hover_consumed, &click_consumed);
  	}
@@ -15904,9 +16583,52 @@ index 2ddeda3..761f507 100644
 +			}
 +		}
 +	}
++
++	// Swipe processing (see swipe_target_at)
++	if (ain->version >= 11 && swipe_parts && cur_clicking && !swipe_inertia) {
++		int dx = cur_pos.x - swipe_begin.x, dy = cur_pos.y - swipe_begin.y;
++		if (!swipe_active
++				&& ((swipe_axis_x(swipe_parts) && abs(dx) >= SWIPE_SLOP)
++				|| (swipe_axis_y(swipe_parts) && abs(dy) >= SWIPE_SLOP))
++				&& !(is_dragging && drag_parts && drag_parts->draggable)) {
++			swipe_active = true;
++			parts_msg_push(swipe_parts, PARTS_MSG_SWIPE_BEGIN, "");
++			click_down_parts = 0;
++			whole_button_armed[0] = false;
++			if (is_dragging && drag_parts)
++				parts_msg_push(drag_parts, PARTS_MSG_DRAG_END, "ib", VK_LBUTTON, false);
++			drag_state_reset();
++		}
++		uint32_t now = SDL_GetTicks();
++		if (swipe_active && (cur_pos.x != (int)swipe_fx || cur_pos.y != (int)swipe_fy)) {
++			float dt = now > swipe_tick ? (float)(now - swipe_tick) : 1.0f;
++			float vx = swipe_axis_x(swipe_parts) ? (cur_pos.x - swipe_fx) / dt : 0.0f;
++			float vy = swipe_axis_y(swipe_parts) ? (cur_pos.y - swipe_fy) / dt : 0.0f;
++			swipe_vx = 0.6f * vx + 0.4f * swipe_vx;
++			swipe_vy = 0.6f * vy + 0.4f * swipe_vy;
++			swipe_fx = cur_pos.x;
++			swipe_fy = cur_pos.y;
++			swipe_tick = now;
++			parts_msg_push(swipe_parts, PARTS_MSG_SWIPING, "iiiib",
++					swipe_begin.x, swipe_begin.y, cur_pos.x, cur_pos.y, false);
++		}
++	} else if (ain->version >= 11 && swipe_inertia && swipe_parts && !cur_clicking) {
++		float dt = passed_time > 0 ? (float)passed_time : 0.0f;
++		swipe_fx += swipe_vx * dt;
++		swipe_fy += swipe_vy * dt;
++		float decay = powf(SWIPE_DECAY, dt);
++		swipe_vx *= decay;
++		swipe_vy *= decay;
++		if (dt > 0)
++			parts_msg_push(swipe_parts, PARTS_MSG_SWIPING, "iiiib", swipe_begin.x,
++					swipe_begin.y, (int)lroundf(swipe_fx), (int)lroundf(swipe_fy), true);
++		if (hypotf(swipe_vx, swipe_vy) < SWIPE_STOP_SPEED)
++			swipe_finish();
++	}
  
  	// Drag movement processing
- 	if (drag_parts && cur_clicking) {
+-	if (drag_parts && cur_clicking) {
++	if (drag_parts && cur_clicking && !swipe_active) {
  		bool cursor_moved = (cur_pos.x != parts_prev_pos.x ||
  				cur_pos.y != parts_prev_pos.y);
 -		if (cursor_moved && drag_parts->draggable) {
@@ -15968,6 +16690,17 @@ index 2ddeda3..761f507 100644
  	}
  
  	// Release handling
++	if (prev_clicking && !cur_clicking && swipe_parts && !swipe_inertia) {
++		if (swipe_active && SDL_GetTicks() - swipe_tick <= SWIPE_HOLD_MS
++				&& hypotf(swipe_vx, swipe_vy) >= SWIPE_FLING_MIN) {
++			swipe_active = false;
++			swipe_inertia = true;
++		} else if (swipe_active) {
++			swipe_finish();
++		} else {
++			swipe_parts = NULL;
++		}
++	}
  	if (prev_clicking && !cur_clicking) {
 -		if (is_dragging && drag_parts && drag_parts->draggable) {
 +		if (ain->version >= 11 && is_dragging && drag_parts)
@@ -15987,7 +16720,7 @@ index 2ddeda3..761f507 100644
  		drag_state_reset();
  
  		if (!click_down_parts) {
-@@ -318,19 +593,35 @@ bool PE_SetClickMissSoundNumber(possibly_unused int sound_no)
+@@ -318,19 +740,64 @@ bool PE_SetClickMissSoundNumber(possibly_unused int sound_no)
  
  void PE_BeginInput(void)
  {
@@ -16011,9 +16744,38 @@ index 2ddeda3..761f507 100644
 +	parts_began_click = ain->version >= 11 && parts_input_depth > 0;
 +	if (!parts_began_click)
 +		memset(whole_button_armed, 0, sizeof(whole_button_armed));
++	clicked_parts = 0;
++	click_down_parts = 0;
++	drag_state_reset();
++}
++
++/*
++ * Loading a save (system.ResumeLoad, quick load) replaces the script call
++ * stack; vm_restore_input_depth() counts the WaitForClick loops open on the
++ * restored stack and sets the nesting here. Without it every load left the
++ * load menu's levels behind, PE_EndInput never closed input again and taps
++ * during transitions fired click handlers at the wrong moment. Queued
++ * messages from before the load are dropped for the same reason.
++ */
++void PE_ResetInputDepth(unsigned depth)
++{
++	if (ain->version < 11)
++		return;
++	if (depth != parts_input_depth)
++		NOTICE("Input depth after load: %u (was %u)", depth, parts_input_depth);
++	trace_log("INPUT depth after load %u (was %u)", depth, parts_input_depth);
++	parts_input_depth = depth;
++	parts_began_click = depth > 0;
++	mouse_clear_presses();
  	clicked_parts = 0;
 +	click_down_parts = 0;
  	drag_state_reset();
++	memset(whole_button_armed, 0, sizeof(whole_button_armed));
++	swipe_parts = NULL;
++	swipe_active = swipe_inertia = false;
++	// Messages queued before the load (the rest of the tap that confirmed it)
++	// name parts of the old screen; PE_Load reuses those numbers.
++	PE_ReleaseMessage();
  }
  
  void PE_SetDrag(int parts_no, bool enable)
@@ -16701,10 +17463,10 @@ index 0000000..7cf3cf3
 +PANEL_GRADATION(Right, 3)
 +#undef PANEL_GRADATION
 diff --git a/src/parts/parts.c b/src/parts/parts.c
-index 5735c9f..bc1f4e3 100644
+index 5735c9f..0f2b16a 100644
 --- a/src/parts/parts.c
 +++ b/src/parts/parts.c
-@@ -15,26 +15,37 @@
+@@ -15,26 +15,38 @@
   */
  
  #include <assert.h>
@@ -16719,6 +17481,7 @@ index 5735c9f..bc1f4e3 100644
  #include "system4/string.h"
 +#include "system4/utfsjis.h"
  
++#include "apeg.h"
  #include "asset_manager.h"
  #include "audio.h"
 +#include "input.h"
@@ -16742,7 +17505,7 @@ index 5735c9f..bc1f4e3 100644
  #define PARTS_PARAMS_INITIALIZER(Z) (struct parts_params) { \
  	.z = Z, \
  	.pos = { 0, 0 }, \
-@@ -65,12 +76,15 @@ static void parts_init(struct parts *parts)
+@@ -65,12 +77,15 @@ static void parts_init(struct parts *parts)
  	parts->global = PARTS_PARAMS_INITIALIZER(1);
  	parts->delegate_index = -1;
  	parts->want_save = true;
@@ -16758,7 +17521,7 @@ index 5735c9f..bc1f4e3 100644
  	TAILQ_INIT(&parts->children);
  	TAILQ_INIT(&parts->motion);
  }
-@@ -84,10 +98,14 @@ static struct parts *parts_alloc(void)
+@@ -84,10 +99,14 @@ static struct parts *parts_alloc(void)
  
  void parts_component_dirty(struct parts *parts)
  {
@@ -16777,7 +17540,7 @@ index 5735c9f..bc1f4e3 100644
  }
  
  static void dirty_list_remove(struct parts *parts)
-@@ -101,14 +119,14 @@ static int parts_get_sprite_z(struct parts *parts)
+@@ -101,14 +120,14 @@ static int parts_get_sprite_z(struct parts *parts)
  	if (!parts_multi_controller)
  		return parts->global.z;
  	// The system overlay controller sorts above any in-stack controller.
@@ -16794,7 +17557,7 @@ index 5735c9f..bc1f4e3 100644
  }
  
  static void parts_list_insert(struct parts *parts)
-@@ -147,10 +165,7 @@ void parts_list_resort(struct parts *parts)
+@@ -147,10 +166,7 @@ void parts_list_resort(struct parts *parts)
  
  struct parts *parts_try_get(int parts_no)
  {
@@ -16806,7 +17569,7 @@ index 5735c9f..bc1f4e3 100644
  }
  
  struct parts *parts_get(int parts_no)
-@@ -164,6 +179,14 @@ struct parts *parts_get(int parts_no)
+@@ -164,6 +180,14 @@ struct parts *parts_get(int parts_no)
  	parts->controller_no = ctrl_stack.active;
  	slot->value = parts;
  	parts_list_insert(parts);
@@ -16821,7 +17584,7 @@ index 5735c9f..bc1f4e3 100644
  	return parts;
  }
  
-@@ -184,6 +207,9 @@ static void parts_state_free(struct parts_state *state)
+@@ -184,6 +208,9 @@ static void parts_state_free(struct parts_state *state)
  		if (state->cg.name)
  			free_string(state->cg.name);
  		break;
@@ -16831,7 +17594,7 @@ index 5735c9f..bc1f4e3 100644
  	case PARTS_TEXT:
  		parts_text_free(&state->text);
  		break;
-@@ -202,6 +228,7 @@ static void parts_state_free(struct parts_state *state)
+@@ -202,6 +229,7 @@ static void parts_state_free(struct parts_state *state)
  	case PARTS_VGAUGE:
  		gfx_delete_texture(&state->common.texture);
  		gfx_delete_texture(&state->gauge.cg);
@@ -16839,7 +17602,16 @@ index 5735c9f..bc1f4e3 100644
  		break;
  	case PARTS_CONSTRUCTION_PROCESS:
  		gfx_delete_texture(&state->common.texture);
-@@ -252,12 +279,19 @@ void parts_state_reset(struct parts_state *state, enum parts_type type)
+@@ -215,6 +243,8 @@ static void parts_state_free(struct parts_state *state)
+ 		break;
+ 	case PARTS_MOVIE:
+ 		// The texture is owned by the SACT sprite.
++		apeg_close(state->movie.player);
++		state->movie.player = NULL;
+ 		state->common.texture.handle = 0;
+ 		if (state->movie.sprite_no >= 0)
+ 			sact_SP_Delete(state->movie.sprite_no);
+@@ -252,12 +282,19 @@ void parts_state_reset(struct parts_state *state, enum parts_type type)
  	parts_state_free(state);
  	state->type = type;
  	switch (type) {
@@ -16859,7 +17631,7 @@ index 5735c9f..bc1f4e3 100644
  		break;
  	case PARTS_CONSTRUCTION_PROCESS:
  		TAILQ_INIT(&state->cproc.ops);
-@@ -266,6 +300,7 @@ void parts_state_reset(struct parts_state *state, enum parts_type type)
+@@ -266,6 +303,7 @@ void parts_state_reset(struct parts_state *state, enum parts_type type)
  	case PARTS_VGAUGE:
  		state->gauge.cg_no = -1;
  		state->gauge.rate = 0.0f;
@@ -16867,7 +17639,7 @@ index 5735c9f..bc1f4e3 100644
  		break;
  	case PARTS_3DLAYER:
  		state->layer3d.plugin = -1;
-@@ -275,7 +310,6 @@ void parts_state_reset(struct parts_state *state, enum parts_type type)
+@@ -275,11 +313,11 @@ void parts_state_reset(struct parts_state *state, enum parts_type type)
  	case PARTS_CG:
  	case PARTS_ANIMATION:
  	case PARTS_FLASH:
@@ -16875,7 +17647,12 @@ index 5735c9f..bc1f4e3 100644
  	case PARTS_RECT_DETECTION:
  		break;
  	case PARTS_MOVIE:
-@@ -320,6 +354,8 @@ struct parts_numeral *parts_get_numeral(struct parts *parts, int state)
+ 		state->movie.sprite_no = -1;
++		state->movie.player = NULL;
+ 		break;
+ 	case PARTS_LAYOUT_BOX:
+ 		state->layout_box.layout_type = PARTS_LAYOUT_VERTICAL;
+@@ -320,6 +358,8 @@ struct parts_numeral *parts_get_numeral(struct parts *parts, int state)
  	return &parts->states[state].num;
  }
  
@@ -16884,7 +17661,7 @@ index 5735c9f..bc1f4e3 100644
  struct parts_gauge *parts_get_hgauge(struct parts *parts, int state)
  {
  	if (parts->states[state].type != PARTS_HGAUGE) {
-@@ -434,6 +470,39 @@ void parts_recalculate_hitbox(struct parts *parts)
+@@ -434,6 +474,39 @@ void parts_recalculate_hitbox(struct parts *parts)
  	for (int i = 0; i < PARTS_NR_STATES; i++) {
  		parts_common_recalculate_hitbox(parts, &parts->states[i].common);
  	}
@@ -16924,7 +17701,7 @@ index 5735c9f..bc1f4e3 100644
  }
  
  static void parts_update_global_pos(struct parts *parts, Point parent_pos)
-@@ -442,6 +511,9 @@ static void parts_update_global_pos(struct parts *parts, Point parent_pos)
+@@ -442,6 +515,9 @@ static void parts_update_global_pos(struct parts *parts, Point parent_pos)
  		parent_pos.x + parts->local.pos.x,
  		parent_pos.y + parts->local.pos.y
  	};
@@ -16934,7 +17711,7 @@ index 5735c9f..bc1f4e3 100644
  
  	struct parts *child;
  	PARTS_FOREACH_CHILD(child, parts) {
-@@ -451,8 +523,12 @@ static void parts_update_global_pos(struct parts *parts, Point parent_pos)
+@@ -451,8 +527,12 @@ static void parts_update_global_pos(struct parts *parts, Point parent_pos)
  
  void parts_set_pos(struct parts *parts, Point pos)
  {
@@ -16947,7 +17724,7 @@ index 5735c9f..bc1f4e3 100644
  	parts_recalculate_hitbox(parts);
  	parts_update_global_pos(parts, parts->parent ? parts->parent->global.pos : root_params.pos);
  	parts_dirty(parts);
-@@ -460,9 +536,11 @@ void parts_set_pos(struct parts *parts, Point pos)
+@@ -460,9 +540,11 @@ void parts_set_pos(struct parts *parts, Point pos)
  
  void parts_set_global_pos(Point pos)
  {
@@ -16959,7 +17736,7 @@ index 5735c9f..bc1f4e3 100644
  		parts_update_global_pos(parts, root_params.pos);
  	}
  	parts_engine_dirty();
-@@ -491,7 +569,7 @@ void parts_set_z(struct parts *parts, int z)
+@@ -491,7 +573,7 @@ void parts_set_z(struct parts *parts, int z)
  
  static void parts_update_global_show(struct parts *parts, bool parent_show)
  {
@@ -16968,7 +17745,7 @@ index 5735c9f..bc1f4e3 100644
  
  	struct parts *child;
  	PARTS_FOREACH_CHILD(child, parts) {
-@@ -499,12 +577,23 @@ static void parts_update_global_show(struct parts *parts, bool parent_show)
+@@ -499,12 +581,23 @@ static void parts_update_global_show(struct parts *parts, bool parent_show)
  	}
  }
  
@@ -16992,7 +17769,7 @@ index 5735c9f..bc1f4e3 100644
  	parts_update_global_show(parts, parts->parent ? parts->parent->global.show : true);
  	parts_dirty(parts);
  }
-@@ -521,7 +610,9 @@ static void parts_update_global_alpha(struct parts *parts, int parent_alpha)
+@@ -521,7 +614,9 @@ static void parts_update_global_alpha(struct parts *parts, int parent_alpha)
  
  void parts_set_alpha(struct parts *parts, int alpha)
  {
@@ -17003,7 +17780,7 @@ index 5735c9f..bc1f4e3 100644
  	parts_update_global_alpha(parts, parts->parent ? parts->parent->global.alpha : 255);
  	parts_dirty(parts);
  }
-@@ -529,9 +620,9 @@ void parts_set_alpha(struct parts *parts, int alpha)
+@@ -529,9 +624,9 @@ void parts_set_alpha(struct parts *parts, int alpha)
  static void parts_update_global_add_color(struct parts *parts, SDL_Color parent_color)
  {
  	parts->global.add_color = (SDL_Color) {
@@ -17016,7 +17793,7 @@ index 5735c9f..bc1f4e3 100644
  		0
  	};
  
-@@ -543,6 +634,8 @@ static void parts_update_global_add_color(struct parts *parts, SDL_Color parent_
+@@ -543,6 +638,8 @@ static void parts_update_global_add_color(struct parts *parts, SDL_Color parent_
  
  void parts_set_add_color(struct parts *parts, SDL_Color color)
  {
@@ -17025,7 +17802,7 @@ index 5735c9f..bc1f4e3 100644
  	parts->local.add_color = color;
  	parts_update_global_add_color(parts, parts->parent ? parts->parent->global.add_color
  			: (SDL_Color){0,0,0,0});
-@@ -566,6 +659,8 @@ static void parts_update_global_multiply_color(struct parts *parts, SDL_Color pa
+@@ -566,6 +663,8 @@ static void parts_update_global_multiply_color(struct parts *parts, SDL_Color pa
  
  void parts_set_multiply_color(struct parts *parts, SDL_Color color)
  {
@@ -17034,7 +17811,7 @@ index 5735c9f..bc1f4e3 100644
  	parts->local.multiply_color = color;
  	parts_update_global_multiply_color(parts, parts->parent ? parts->parent->global.multiply_color
  			: (SDL_Color){255,255,255,255});
-@@ -574,8 +669,12 @@ void parts_set_multiply_color(struct parts *parts, SDL_Color color)
+@@ -574,8 +673,12 @@ void parts_set_multiply_color(struct parts *parts, SDL_Color color)
  
  void parts_set_origin_mode(struct parts *parts, int origin_mode)
  {
@@ -17047,7 +17824,7 @@ index 5735c9f..bc1f4e3 100644
  	parts_dirty(parts);
  }
  
-@@ -591,9 +690,13 @@ static void parts_update_global_scale_x(struct parts *parts, float parent_scale_
+@@ -591,9 +694,13 @@ static void parts_update_global_scale_x(struct parts *parts, float parent_scale_
  
  void parts_set_scale_x(struct parts *parts, float mag)
  {
@@ -17061,7 +17838,7 @@ index 5735c9f..bc1f4e3 100644
  	parts_dirty(parts);
  }
  
-@@ -609,9 +712,13 @@ static void parts_update_global_scale_y(struct parts *parts, float parent_scale_
+@@ -609,9 +716,13 @@ static void parts_update_global_scale_y(struct parts *parts, float parent_scale_
  
  void parts_set_scale_y(struct parts *parts, float mag)
  {
@@ -17075,7 +17852,7 @@ index 5735c9f..bc1f4e3 100644
  	parts_dirty(parts);
  }
  
-@@ -627,8 +734,10 @@ static void parts_update_global_rotate_x(struct parts *parts, float parent_rot_x
+@@ -627,8 +738,10 @@ static void parts_update_global_rotate_x(struct parts *parts, float parent_rot_x
  
  void parts_set_rotation_x(struct parts *parts, float rot)
  {
@@ -17086,7 +17863,7 @@ index 5735c9f..bc1f4e3 100644
  	parts_dirty(parts);
  }
  
-@@ -644,8 +753,10 @@ static void parts_update_global_rotate_y(struct parts *parts, float parent_rot_y
+@@ -644,8 +757,10 @@ static void parts_update_global_rotate_y(struct parts *parts, float parent_rot_y
  
  void parts_set_rotation_y(struct parts *parts, float rot)
  {
@@ -17097,7 +17874,7 @@ index 5735c9f..bc1f4e3 100644
  	parts_dirty(parts);
  }
  
-@@ -661,13 +772,18 @@ static void parts_update_global_rotate_z(struct parts *parts, float parent_rot_z
+@@ -661,13 +776,18 @@ static void parts_update_global_rotate_z(struct parts *parts, float parent_rot_z
  
  void parts_set_rotation_z(struct parts *parts, float rot)
  {
@@ -17116,7 +17893,7 @@ index 5735c9f..bc1f4e3 100644
  	common->w = w;
  	common->h = h;
  	parts_common_recalculate_hitbox(parts, common);
-@@ -693,12 +809,37 @@ bool _parts_cg_set(struct parts *parts, struct parts_cg *parts_cg, struct cg *cg
+@@ -693,12 +813,37 @@ bool _parts_cg_set(struct parts *parts, struct parts_cg *parts_cg, struct cg *cg
  bool parts_cg_set_by_index(struct parts *parts, struct parts_cg *cg, int cg_no)
  {
  	assert(cg_no);
@@ -17155,7 +17932,7 @@ index 5735c9f..bc1f4e3 100644
  	int no;
  	struct cg *cg;
  	if (!memcmp(cg_name->text, "<save>", 6)) {
-@@ -709,7 +850,12 @@ bool parts_cg_set(struct parts *parts, struct parts_cg *parts_cg, struct string
+@@ -709,7 +854,12 @@ bool parts_cg_set(struct parts *parts, struct parts_cg *parts_cg, struct string
  	} else {
  		cg = asset_cg_load_by_name(cg_name->text, &no);
  	}
@@ -17169,7 +17946,7 @@ index 5735c9f..bc1f4e3 100644
  }
  
  struct parts_numeral_font *parts_numeral_fonts = NULL;
-@@ -717,7 +863,15 @@ int parts_nr_numeral_fonts = 0;
+@@ -717,7 +867,15 @@ int parts_nr_numeral_fonts = 0;
  
  void parts_numeral_font_init(struct parts_numeral_font *font)
  {
@@ -17186,7 +17963,7 @@ index 5735c9f..bc1f4e3 100644
  		for (int i = 0; i < 12; i++) {
  			struct cg *cg = asset_cg_load(font->cg_no + i);
  			if (!cg) {
-@@ -743,6 +897,7 @@ void parts_numeral_font_init(struct parts_numeral_font *font)
+@@ -743,6 +901,7 @@ void parts_numeral_font_init(struct parts_numeral_font *font)
  		int x = 0;
  		Texture t = {0};
  		struct cg *cg = asset_cg_load(font->cg_no);
@@ -17194,7 +17971,7 @@ index 5735c9f..bc1f4e3 100644
  		gfx_init_texture_with_cg(&t, cg);
  		for (int i = 0; i < 12; i++) {
  			if (font->width[i] <= 0)
-@@ -825,11 +980,8 @@ static int parts_load_numeral_font_combined(int cg_no, int w[12])
+@@ -825,11 +984,8 @@ static int parts_load_numeral_font_combined(int cg_no, int w[12])
  		struct parts_numeral_font *font = &parts_numeral_fonts[i];
  		if (font->type != PARTS_NUMERAL_FONT_COMBINED || font->cg_no != cg_no)
  			continue;
@@ -17208,7 +17985,7 @@ index 5735c9f..bc1f4e3 100644
  	}
  
  	// load new font
-@@ -857,27 +1009,22 @@ static bool parts_numeral_update(struct parts *parts, struct parts_numeral *num)
+@@ -857,27 +1013,22 @@ static bool parts_numeral_update(struct parts *parts, struct parts_numeral *num)
  	// extract digits
  	int digits;
  	uint8_t d[32];
@@ -17243,7 +18020,7 @@ index 5735c9f..bc1f4e3 100644
  
  	struct parts_numeral_font *font = &parts_numeral_fonts[num->font_no];
  
-@@ -893,7 +1040,8 @@ static bool parts_numeral_update(struct parts *parts, struct parts_numeral *num)
+@@ -893,7 +1044,8 @@ static bool parts_numeral_update(struct parts *parts, struct parts_numeral *num)
  
  	// copy chars to texture
  	gfx_delete_texture(&num->common.texture);
@@ -17253,7 +18030,7 @@ index 5735c9f..bc1f4e3 100644
  
  	int x = 0;
  	for (int i = nr_chars-1; i>= 0; i--) {
-@@ -905,6 +1053,7 @@ static bool parts_numeral_update(struct parts *parts, struct parts_numeral *num)
+@@ -905,6 +1057,7 @@ static bool parts_numeral_update(struct parts *parts, struct parts_numeral *num)
  	}
  
  	parts_set_dims(parts, &num->common, w, h);
@@ -17261,7 +18038,7 @@ index 5735c9f..bc1f4e3 100644
  
  	parts_dirty(parts);
  	return true;
-@@ -913,6 +1062,11 @@ static bool parts_numeral_update(struct parts *parts, struct parts_numeral *num)
+@@ -913,6 +1066,11 @@ static bool parts_numeral_update(struct parts *parts, struct parts_numeral *num)
  
  bool parts_numeral_set_number(struct parts *parts, struct parts_numeral *num, int n)
  {
@@ -17273,7 +18050,7 @@ index 5735c9f..bc1f4e3 100644
  	num->have_num = true;
  	num->num = n;
  	return parts_numeral_update(parts, num);
-@@ -940,7 +1094,7 @@ void parts_set_surface_area(struct parts *parts, struct parts_common *common, in
+@@ -940,7 +1098,7 @@ void parts_set_surface_area(struct parts *parts, struct parts_common *common, in
  
  static bool parts_animation_update(struct parts_animation *anim, int passed_time)
  {
@@ -17282,7 +18059,7 @@ index 5735c9f..bc1f4e3 100644
  		return false;
  
  	const unsigned elapsed = anim->elapsed + passed_time;
-@@ -960,16 +1114,24 @@ static bool parts_animation_update(struct parts_animation *anim, int passed_time
+@@ -960,16 +1118,24 @@ static bool parts_animation_update(struct parts_animation *anim, int passed_time
  
  static void parts_update_loop(struct parts *parts, int passed_time)
  {
@@ -17311,7 +18088,7 @@ index 5735c9f..bc1f4e3 100644
  		break;
  	default:
  		break;
-@@ -995,8 +1157,24 @@ void parts_release(int parts_no)
+@@ -995,8 +1161,24 @@ void parts_release(int parts_no)
  	struct parts *parts = slot->value;
  	parts_input_reset_drag(parts);
  	parts_clear_motion(parts);
@@ -17336,7 +18113,7 @@ index 5735c9f..bc1f4e3 100644
  	}
  
  	// break parent/child relationships
-@@ -1007,6 +1185,8 @@ void parts_release(int parts_no)
+@@ -1007,6 +1189,8 @@ void parts_release(int parts_no)
  		parts_component_dirty(child);
  	}
  	if (parts->parent) {
@@ -17345,7 +18122,7 @@ index 5735c9f..bc1f4e3 100644
  		TAILQ_REMOVE(&parts->parent->children, parts, child_list_entry);
  		parts->parent = NULL;
  	}
-@@ -1064,7 +1244,11 @@ bool PE_Init(void)
+@@ -1064,7 +1248,11 @@ bool PE_Init(void)
  
  void PE_Reset(void)
  {
@@ -17357,7 +18134,7 @@ index 5735c9f..bc1f4e3 100644
  	PE_ReleaseMessage();
  	ctrl_stack_init();
  	sact_ModuleFini();
-@@ -1083,7 +1267,7 @@ static void parts_combine_params(struct parts_params *parent, struct parts_param
+@@ -1083,7 +1271,7 @@ static void parts_combine_params(struct parts_params *parent, struct parts_param
  		struct parts_params *out)
  {
  	out->z = parent->z + child->z;
@@ -17366,7 +18143,7 @@ index 5735c9f..bc1f4e3 100644
  	out->show = parent->show && child->show;
  	out->alpha = parent->alpha * (child->alpha / 255.0f);
  	out->scale.x = parent->scale.x * child->scale.x;
-@@ -1091,9 +1275,9 @@ static void parts_combine_params(struct parts_params *parent, struct parts_param
+@@ -1091,9 +1279,9 @@ static void parts_combine_params(struct parts_params *parent, struct parts_param
  	out->rotation.x = parent->rotation.x + child->rotation.x;
  	out->rotation.y = parent->rotation.y + child->rotation.y;
  	out->rotation.z = parent->rotation.z + child->rotation.z;
@@ -17379,7 +18156,7 @@ index 5735c9f..bc1f4e3 100644
  	out->multiply_color.r = parent->multiply_color.r * (child->multiply_color.r / 255.0f);
  	out->multiply_color.g = parent->multiply_color.g * (child->multiply_color.g / 255.0f);
  	out->multiply_color.b = parent->multiply_color.b * (child->multiply_color.b / 255.0f);
-@@ -1101,10 +1285,72 @@ static void parts_combine_params(struct parts_params *parent, struct parts_param
+@@ -1101,10 +1289,72 @@ static void parts_combine_params(struct parts_params *parent, struct parts_param
  			? child->alpha_clipper_parts_no : parent->alpha_clipper_parts_no;
  }
  
@@ -17453,7 +18230,7 @@ index 5735c9f..bc1f4e3 100644
  	if (parts_get_sprite_z(parts) != parts->sp.z
  			|| parts_get_sprite_z2(parts) != parts->sp.z2) {
  		parts_list_resort(parts);
-@@ -1123,6 +1369,13 @@ static void parts_update_component(struct parts *parts)
+@@ -1123,6 +1373,13 @@ static void parts_update_component(struct parts *parts)
  	}
  }
  
@@ -17467,7 +18244,7 @@ index 5735c9f..bc1f4e3 100644
  void PE_UpdateComponent(possibly_unused int passed_time)
  {
  	// After loading a save, the game script may compute a negative time delta
-@@ -1130,28 +1383,19 @@ void PE_UpdateComponent(possibly_unused int passed_time)
+@@ -1130,28 +1387,19 @@ void PE_UpdateComponent(possibly_unused int passed_time)
  	// which is meaningless across process restarts.
  	if (passed_time < 0)
  		passed_time = 0;
@@ -17503,7 +18280,7 @@ index 5735c9f..bc1f4e3 100644
  
  		// don't do anything here if parent is dirty
  		if (parts_has_dirty_parent(parts))
-@@ -1163,23 +1407,51 @@ void PE_UpdateComponent(possibly_unused int passed_time)
+@@ -1163,23 +1411,51 @@ void PE_UpdateComponent(possibly_unused int passed_time)
  }
  
  bool parts_message_window_show = true;
@@ -17555,7 +18332,7 @@ index 5735c9f..bc1f4e3 100644
  }
  
  void PE_SetDelegateIndex(int parts_no, int delegate_index)
-@@ -1307,6 +1579,8 @@ static bool _parts_animation_set_cg(struct parts *parts, struct parts_animation
+@@ -1307,6 +1583,8 @@ static bool _parts_animation_set_cg(struct parts *parts, struct parts_animation
  		int start_no, int nr_frames, int frame_time,
  		struct cg *(*load_cg)(int no, void *data), void *data)
  {
@@ -17564,7 +18341,7 @@ index 5735c9f..bc1f4e3 100644
  	int w = 0, h = 0;
  	Texture *frames = xcalloc(nr_frames, sizeof(Texture));
  	for (int i = 0; i < nr_frames; i++) {
-@@ -1325,6 +1599,8 @@ static bool _parts_animation_set_cg(struct parts *parts, struct parts_animation
+@@ -1325,6 +1603,8 @@ static bool _parts_animation_set_cg(struct parts *parts, struct parts_animation
  	}
  
  	parts_set_dims(parts, &anim->common, w, h);
@@ -17573,7 +18350,7 @@ index 5735c9f..bc1f4e3 100644
  	free(anim->frames);
  	anim->start_no = start_no;
  	anim->frames = frames;
-@@ -1344,8 +1620,13 @@ static struct cg *load_loop_cg_by_index(int no, void *_)
+@@ -1344,8 +1624,13 @@ static struct cg *load_loop_cg_by_index(int no, void *_)
  bool parts_animation_set_cg_by_index(struct parts *parts, struct parts_animation *anim,
  		int cg_no, int nr_frames, int frame_time)
  {
@@ -17588,7 +18365,7 @@ index 5735c9f..bc1f4e3 100644
  }
  
  bool PE_SetLoopCG_by_index(int parts_no, int cg_no, int nr_frames, int frame_time, int state)
-@@ -1414,12 +1695,11 @@ bool PE_SetLoopCGSurfaceArea(int parts_no, int x, int y, int w, int h, int state
+@@ -1414,12 +1699,11 @@ bool PE_SetLoopCGSurfaceArea(int parts_no, int x, int y, int w, int h, int state
  
  static void _parts_set_gauge_cg(struct parts *parts, struct parts_gauge *g, struct cg *cg)
  {
@@ -17603,7 +18380,7 @@ index 5735c9f..bc1f4e3 100644
  	parts_set_dims(parts, &g->common, g->cg.w, g->cg.h);
  
  	parts_dirty(parts);
-@@ -1434,6 +1714,9 @@ bool parts_gauge_set_cg(struct parts *parts, struct parts_gauge *g, struct strin
+@@ -1434,6 +1718,9 @@ bool parts_gauge_set_cg(struct parts *parts, struct parts_gauge *g, struct strin
  	_parts_set_gauge_cg(parts, g, cg);
  	cg_free(cg);
  	g->cg_no = cg_no;
@@ -17613,7 +18390,7 @@ index 5735c9f..bc1f4e3 100644
  	return true;
  }
  
-@@ -1445,6 +1728,8 @@ bool parts_gauge_set_cg_by_index(struct parts *parts, struct parts_gauge *g, int
+@@ -1445,6 +1732,8 @@ bool parts_gauge_set_cg_by_index(struct parts *parts, struct parts_gauge *g, int
  	_parts_set_gauge_cg(parts, g, cg);
  	cg_free(cg);
  	g->cg_no = cg_no;
@@ -17622,7 +18399,7 @@ index 5735c9f..bc1f4e3 100644
  	return true;
  }
  
-@@ -1494,9 +1779,11 @@ void parts_hgauge_set_rate(struct parts *parts, struct parts_gauge *g, float rat
+@@ -1494,9 +1783,11 @@ void parts_hgauge_set_rate(struct parts *parts, struct parts_gauge *g, float rat
  		WARNING("HGauge texture uninitialized");
  		return;
  	}
@@ -17636,7 +18413,7 @@ index 5735c9f..bc1f4e3 100644
  	parts_dirty(parts);
  	g->rate = rate;
  }
-@@ -1521,7 +1808,9 @@ bool PE_SetHGaugeRate(int parts_no, float numerator, float denominator, int stat
+@@ -1521,7 +1812,9 @@ bool PE_SetHGaugeRate(int parts_no, float numerator, float denominator, int stat
  
  	struct parts *parts = parts_get(parts_no);
  	struct parts_gauge *g = parts_get_hgauge(parts, state);
@@ -17647,7 +18424,7 @@ index 5735c9f..bc1f4e3 100644
  	return true;
  }
  
-@@ -1537,7 +1826,9 @@ bool PE_SetVGaugeRate(int parts_no, float numerator, float denominator, int stat
+@@ -1537,7 +1830,9 @@ bool PE_SetVGaugeRate(int parts_no, float numerator, float denominator, int stat
  
  	struct parts *parts = parts_get(parts_no);
  	struct parts_gauge *g = parts_get_vgauge(parts, state);
@@ -17658,7 +18435,7 @@ index 5735c9f..bc1f4e3 100644
  	return true;
  }
  
-@@ -1577,6 +1868,36 @@ bool PE_SetNumeralCG(int parts_no, struct string *cg_name, int state)
+@@ -1577,6 +1872,36 @@ bool PE_SetNumeralCG(int parts_no, struct string *cg_name, int state)
  	return true;
  }
  
@@ -17695,7 +18472,7 @@ index 5735c9f..bc1f4e3 100644
  bool PE_SetNumeralCG_by_index(int parts_no, int cg_no, int state)
  {
  	if (!parts_state_valid(--state))
-@@ -1630,6 +1951,15 @@ bool PE_SetNumeralNumber(int parts_no, int n, int state)
+@@ -1630,6 +1955,15 @@ bool PE_SetNumeralNumber(int parts_no, int n, int state)
  	return parts_numeral_set_number(parts, numeral, n);
  }
  
@@ -17711,7 +18488,7 @@ index 5735c9f..bc1f4e3 100644
  bool PE_SetNumeralShowComma(int parts_no, bool show_comma, int state)
  {
  	if (!parts_state_valid(--state))
-@@ -1735,6 +2065,11 @@ void PE_SetZ(int parts_no, int z)
+@@ -1735,6 +2069,11 @@ void PE_SetZ(int parts_no, int z)
  void PE_SetShow(int parts_no, bool show)
  {
  	parts_set_show(parts_get(parts_no), show);
@@ -17723,7 +18500,7 @@ index 5735c9f..bc1f4e3 100644
  }
  
  void PE_SetAlpha(int parts_no, int alpha)
-@@ -1866,16 +2201,28 @@ int PE_GetPartsOriginPosMode(int parts_no)
+@@ -1866,16 +2205,28 @@ int PE_GetPartsOriginPosMode(int parts_no)
  void PE_SetParentPartsNumber(int parts_no, int parent_parts_no)
  {
  	struct parts *parts = parts_get(parts_no);
@@ -17755,7 +18532,7 @@ index 5735c9f..bc1f4e3 100644
  }
  
  bool PE_SetPartsGroupNumber(possibly_unused int PartsNumber, possibly_unused int GroupNumber)
-@@ -1898,6 +2245,13 @@ bool PE_GetPartsMessageWindowShowLink(int parts_no)
+@@ -1898,6 +2249,13 @@ bool PE_GetPartsMessageWindowShowLink(int parts_no)
  void PE_SetPartsMagX(int parts_no, float scale_x)
  {
  	struct parts *parts = parts_get(parts_no);
@@ -17769,7 +18546,7 @@ index 5735c9f..bc1f4e3 100644
  	parts_set_scale_x(parts, scale_x);
  }
  
-@@ -1919,13 +2273,11 @@ float PE_GetPartsMagY(int parts_no)
+@@ -1919,13 +2277,11 @@ float PE_GetPartsMagY(int parts_no)
  
  void PE_SetPartsRotateX(int parts_no, float rot_x)
  {
@@ -17783,7 +18560,7 @@ index 5735c9f..bc1f4e3 100644
  	parts_set_rotation_y(parts_get(parts_no), rot_y);
  }
  
-@@ -1970,8 +2322,8 @@ bool PE_save_thumbnail(struct string *filename, int reduction_factor)
+@@ -1970,8 +2326,8 @@ bool PE_save_thumbnail(struct string *filename, int reduction_factor)
  		reduction_factor = 1;
  
  	Texture *src = gfx_main_surface();
@@ -17794,7 +18571,7 @@ index 5735c9f..bc1f4e3 100644
  
  	// Downscale by repeatedly halving until we are within a factor of two of
  	// the target size, then do the final stretch. This avoids the aliasing
-@@ -1996,6 +2348,13 @@ bool PE_save_thumbnail(struct string *filename, int reduction_factor)
+@@ -1996,6 +2352,13 @@ bool PE_save_thumbnail(struct string *filename, int reduction_factor)
  		gfx_delete_texture(&tmp);
  
  	char *path = savedir_path(filename->text);
@@ -17808,7 +18585,7 @@ index 5735c9f..bc1f4e3 100644
  	int r = gfx_save_texture(&dst, path, ALCG_QNT);
  	free(path);
  	gfx_delete_texture(&dst);
-@@ -2022,6 +2381,38 @@ void PE_SetComponentType(int parts_no, int type, int state)
+@@ -2022,6 +2385,38 @@ void PE_SetComponentType(int parts_no, int type, int state)
  		return;
  	struct parts *parts = parts_get(parts_no);
  	enum parts_type pt = PARTS_UNINITIALIZED;
@@ -17847,7 +18624,7 @@ index 5735c9f..bc1f4e3 100644
  	switch (type) {
  	case 8:  pt = PARTS_LAYOUT_BOX; break;
  	case 11: pt = PARTS_CG; break;
-@@ -2049,22 +2440,23 @@ int PE_GetComponentType(int parts_no, int state)
+@@ -2049,22 +2444,23 @@ int PE_GetComponentType(int parts_no, int state)
  	struct parts *parts = parts_try_get(parts_no);
  	if (!parts)
  		return -1;
@@ -17883,7 +18660,7 @@ index 5735c9f..bc1f4e3 100644
  	case PARTS_FLASH:
  		break;
  	}
-@@ -2106,74 +2498,158 @@ bool PE_IsExist(int parts_no)
+@@ -2106,74 +2502,158 @@ bool PE_IsExist(int parts_no)
  	return !!ht_get_int(parts_table, parts_no, NULL);
  }
  
@@ -18071,8 +18848,87 @@ index 5735c9f..bc1f4e3 100644
  		ctrl_stack.active = controller_no;
  	else
  		VM_ERROR("Invalid controller number: %d", controller_no);
+@@ -2246,6 +2726,78 @@ bool PE_init_parts_movie(int parts_no, int width, int height, int bg_r, int bg_g
+ 	return true;
+ }
+ 
++/* Rance 10: CreatePartsMovie(Number, FileName, SoundID, SoundGroup, R, G, B, State).
++ * The part is sized to the movie (the script scales it to the view with
++ * View width / Parts width) and filled with the background colour. */
++bool PE_create_parts_movie(int parts_no, struct string *filename, possibly_unused int sound_id,
++		int sound_group, int r, int g, int b, int state)
++{
++	if (!parts_state_valid(state - 1))
++		return false;
++	struct parts *parts = parts_get(parts_no);
++	// Re-creating a movie must release the previous sprite and player.
++	parts_state_reset(&parts->states[state - 1], PARTS_UNINITIALIZED);
++	struct apeg_player *player = apeg_open(filename->text, sound_group);
++	if (!player)
++		return false;
++	if (!PE_init_parts_movie(parts_no, apeg_width(player), apeg_height(player), r, g, b, state)) {
++		apeg_close(player);
++		return false;
++	}
++	parts->states[state - 1].movie.player = player;
++	return true;
++}
++
++static struct apeg_player *parts_movie_player(int parts_no, int state)
++{
++	struct parts *parts = parts_try_get(parts_no);
++	if (!parts || !parts_state_valid(state - 1) || parts->states[state - 1].type != PARTS_MOVIE)
++		return NULL;
++	return parts->states[state - 1].movie.player;
++}
++
++bool PE_release_parts_movie(int parts_no, int state)
++{
++	struct parts *parts = parts_try_get(parts_no);
++	if (!parts || !parts_state_valid(state - 1) || parts->states[state - 1].type != PARTS_MOVIE)
++		return false;
++	parts_state_reset(&parts->states[state - 1], PARTS_UNINITIALIZED);
++	parts_dirty(parts);
++	return true;
++}
++
++bool PE_play_parts_movie(int parts_no, int msec, int state)
++{
++	struct apeg_player *p = parts_movie_player(parts_no, state);
++	return p && apeg_play(p, msec);
++}
++
++void PE_set_movie_time(int parts_no, int msec, int state)
++{
++	struct apeg_player *p = parts_movie_player(parts_no, state);
++	if (p)
++		apeg_seek(p, msec);
++}
++
++bool PE_is_end_parts_movie(int parts_no, int state)
++{
++	// A missing movie counts as finished so the script never waits forever.
++	struct apeg_player *p = parts_movie_player(parts_no, state);
++	return !p || apeg_is_end(p);
++}
++
++int PE_get_parts_movie_end_time(int parts_no, int state)
++{
++	struct apeg_player *p = parts_movie_player(parts_no, state);
++	return p ? apeg_duration(p) : 0;
++}
++
++int PE_get_parts_movie_current_time(int parts_no, int state)
++{
++	struct apeg_player *p = parts_movie_player(parts_no, state);
++	return p ? apeg_position(p) : 0;
++}
++
+ int PE_get_movie_sprite(int parts_no, int state)
+ {
+ 	if (!parts_state_valid(--state))
 diff --git a/src/parts/parts_internal.h b/src/parts/parts_internal.h
-index 4d5448b..4860d82 100644
+index 4d5448b..ae9cf68 100644
 --- a/src/parts/parts_internal.h
 +++ b/src/parts/parts_internal.h
 @@ -27,6 +27,7 @@
@@ -18210,7 +19066,15 @@ index 4d5448b..4860d82 100644
  	// Indexed by library index. Only entries for STOP_MOTION libraries have lib_indices populated.
  	struct flat_stop_motion_frames *stop_motion_frames;
  };
-@@ -353,7 +382,7 @@ struct parts_layout_box {
+@@ -336,6 +365,7 @@ struct parts_flat {
+ struct parts_movie {
+ 	struct parts_common common;
+ 	int sprite_no;  // SACT sprite number used as movie render target
++	struct apeg_player *player;  // CreatePartsMovie (Rance 10 .apeg)
+ };
+ 
+ enum parts_layout_type {
+@@ -353,7 +383,7 @@ struct parts_layout_box {
  	struct parts_common common;
  	enum parts_layout_type layout_type;
  	bool wrap;
@@ -18219,7 +19083,7 @@ index 4d5448b..4860d82 100644
  	int align;
  	int padding_top;
  	int padding_bottom;
-@@ -382,9 +411,39 @@ struct parts_state {
+@@ -382,9 +412,39 @@ struct parts_state {
  		struct parts_movie movie;
  		struct parts_layout_box layout_box;
  		struct parts_3dlayer layer3d;
@@ -18259,7 +19123,7 @@ index 4d5448b..4860d82 100644
  TAILQ_HEAD(parts_list, parts);
  
  struct parts_params {
-@@ -403,6 +462,7 @@ struct parts {
+@@ -403,6 +463,7 @@ struct parts {
  	struct sprite sp;
  	enum parts_state_type state;
  	struct parts_state states[PARTS_NR_STATES];
@@ -18267,7 +19131,7 @@ index 4d5448b..4860d82 100644
  	TAILQ_ENTRY(parts) parts_list_entry;
  	TAILQ_ENTRY(parts) child_list_entry;
  	TAILQ_ENTRY(parts) dirty_list_entry;
-@@ -413,14 +473,34 @@ struct parts {
+@@ -413,14 +474,35 @@ struct parts {
  	int dirty;
  	int no;
  	int delegate_index;
@@ -18296,13 +19160,14 @@ index 4d5448b..4860d82 100644
 +	bool want_save_back_scene;
 +	bool back_scene;
  	bool draggable;
++	int swipe_type;  // Parts_SetSwipeType: 0 none, 1 free, 2 vertical, 3 horizontal
  	int on_cursor_sound;
  	int on_click_sound;
 +	struct string *sound_names[PARTS_NR_STATES];
  	int origin_mode;
  	int pending_parent;
  	int linked_to;
-@@ -429,10 +509,21 @@ struct parts {
+@@ -429,10 +511,21 @@ struct parts {
  	int hover_time;
  	int draw_filter;
  	bool message_window;
@@ -18324,7 +19189,7 @@ index 4d5448b..4860d82 100644
  	struct parts_motion_list motion;
  	int controller_no;
  };
-@@ -444,21 +535,25 @@ struct parts {
+@@ -444,21 +537,25 @@ struct parts {
  // parts.c
  extern struct parts_list parts_list;
  
@@ -18352,7 +19217,7 @@ index 4d5448b..4860d82 100644
  struct parts_text *parts_get_text(struct parts *parts, int state);
  struct parts_animation *parts_get_animation(struct parts *parts, int state);
  struct parts_numeral *parts_get_numeral(struct parts *parts, int state);
-@@ -471,6 +566,7 @@ struct parts_movie *parts_get_movie(struct parts *parts, int state);
+@@ -471,6 +568,7 @@ struct parts_movie *parts_get_movie(struct parts *parts, int state);
  struct parts_layout_box *parts_get_layout_box(struct parts *parts);
  struct parts_3dlayer *parts_get_3dlayer(struct parts *parts, int state);
  void parts_set_pos(struct parts *parts, Point pos);
@@ -18360,7 +19225,7 @@ index 4d5448b..4860d82 100644
  void parts_set_global_pos(Point pos);
  void parts_set_dims(struct parts *parts, struct parts_common *common, int w, int h);
  void parts_set_scale_x(struct parts *parts, float mag);
-@@ -482,6 +578,7 @@ void parts_release(int parts_no);
+@@ -482,6 +580,7 @@ void parts_release(int parts_no);
  void parts_release_all(void);
  void parts_set_surface_area(struct parts *parts, struct parts_common *common, int x, int y, int w, int h);
  extern bool parts_message_window_show;
@@ -18368,7 +19233,7 @@ index 4d5448b..4860d82 100644
  
  extern struct parts_numeral_font *parts_numeral_fonts;
  extern int parts_nr_numeral_fonts;
-@@ -489,8 +586,18 @@ extern int parts_nr_numeral_fonts;
+@@ -489,8 +588,18 @@ extern int parts_nr_numeral_fonts;
  // for save.c
  void parts_list_resort(struct parts *parts);
  void parts_component_dirty(struct parts *parts);
@@ -18387,7 +19252,7 @@ index 4d5448b..4860d82 100644
  bool parts_cg_set(struct parts *parts, struct parts_cg *cg, struct string *cg_name);
  bool parts_cg_set_by_index(struct parts *parts, struct parts_cg *cg, int cg_no);
  void parts_text_append(struct parts *parts, struct parts_text *t, struct string *text);
-@@ -508,6 +615,11 @@ bool parts_3dlayer_create_plugin(struct parts_3dlayer *l);
+@@ -508,6 +617,11 @@ bool parts_3dlayer_create_plugin(struct parts_3dlayer *l);
  
  // text.c
  void parts_text_free(struct parts_text *t);
@@ -18399,7 +19264,7 @@ index 4d5448b..4860d82 100644
  struct string *parts_text_line_get(struct parts_text_line *line);
  struct string *parts_text_get(struct parts_text *t);
  
-@@ -523,11 +635,14 @@ void parts_render_family(struct parts *parts);
+@@ -523,11 +637,14 @@ void parts_render_family(struct parts *parts);
  
  // motion.c
  void parts_clear_motion(struct parts *parts);
@@ -18414,7 +19279,7 @@ index 4d5448b..4860d82 100644
  
  // message.c
  enum parts_message_type {
-@@ -546,7 +661,12 @@ enum parts_message_type {
+@@ -546,7 +663,16 @@ enum parts_message_type {
  	PARTS_MSG_DROP_LEAVE     = 13,
  	PARTS_MSG_KEY_TRIGGER    = 14,
  	PARTS_MSG_KEY_DOWN       = 15,
@@ -18424,10 +19289,14 @@ index 4d5448b..4860d82 100644
 +	// Modern message.c translates native IDs after drag-end by +1.
 +	PARTS_MSG_CHANGED        = 21,
 +	PARTS_MSG_CHANGED_FLAG   = 22,
++	// Rance 10 swipe messages (script indices 27-29 after the +1 shift).
++	PARTS_MSG_SWIPE_BEGIN    = 26,
++	PARTS_MSG_SWIPING        = 27,
++	PARTS_MSG_SWIPE_END      = 28,
  };
  
  void parts_msg_push(struct parts* parts, int type, const char *fmt, ...);
-@@ -557,6 +677,7 @@ void parts_add_cp_op(struct parts_construction_process *cproc, struct parts_cp_o
+@@ -557,6 +683,7 @@ void parts_add_cp_op(struct parts_construction_process *cproc, struct parts_cp_o
  bool parts_build_construction_process(struct parts *parts,
  		struct parts_construction_process *cproc);
  bool parts_clear_construction_process(struct parts_construction_process *cproc);
@@ -18435,7 +19304,7 @@ index 4d5448b..4860d82 100644
  
  // flash.c
  void parts_flash_free(struct parts_flash *f);
-@@ -566,8 +687,14 @@ bool parts_flash_seek(struct parts_flash *f, int frame);
+@@ -566,8 +693,14 @@ bool parts_flash_seek(struct parts_flash *f, int frame);
  
  // flat.c
  void parts_flat_free(struct parts_flat *f);
@@ -18450,7 +19319,7 @@ index 4d5448b..4860d82 100644
  int parts_flat_find_library(struct flat *fl, const char *name);
  int parts_flat_stop_motion_get_cg_lib(struct parts_flat *f, int sm_lib_idx, int local);
  
-@@ -606,9 +733,10 @@ typedef void (*flat_emitter_particle_fn)(const struct flat_emitter_particle *p,
+@@ -606,9 +739,10 @@ typedef void (*flat_emitter_particle_fn)(const struct flat_emitter_particle *p,
  void parts_flat_align_offset(int align, int w, int h, vec2 out);
  bool parts_flat_emitter_get_align_offset(struct parts_flat *f, int emitter_lib_idx, vec2 out);
  void parts_flat_foreach_emitter_particle(struct parts_flat *f, int emitter_lib_idx,
@@ -18898,10 +19767,10 @@ index 0000000..185b15d
 +
 +#endif
 diff --git a/src/parts/save.c b/src/parts/save.c
-index 728b06c..85e66c1 100644
+index 728b06c..c9d4271 100644
 --- a/src/parts/save.c
 +++ b/src/parts/save.c
-@@ -14,18 +14,23 @@
+@@ -14,18 +14,24 @@
   * along with this program; if not, see <http://gnu.org/licenses/>.
   */
  
@@ -18916,6 +19785,7 @@ index 728b06c..85e66c1 100644
  #include "asset_manager.h"
  #include "parts.h"
  #include "reign.h"
++#include "trace_log.h"
  #include "parts_internal.h"
 +#include "message_window.h"
  #include "../hll/iarray.h"
@@ -18926,7 +19796,7 @@ index 728b06c..85e66c1 100644
  
  static void save_parts_params(struct iarray_writer *w, struct parts_params *params)
  {
-@@ -88,10 +93,11 @@ static void save_parts_text(struct iarray_writer *w, struct parts_text *text)
+@@ -88,10 +94,11 @@ static void save_parts_text(struct iarray_writer *w, struct parts_text *text)
  		iarray_write_string(w, s);
  		free_string(s);
  	}
@@ -18939,7 +19809,7 @@ index 728b06c..85e66c1 100644
  {
  	// FIXME: this won't accurately restore the text state if the text style
  	//        varies per-character
-@@ -114,6 +120,7 @@ static void load_parts_text(struct iarray_reader *r, struct parts *parts,
+@@ -114,6 +121,7 @@ static void load_parts_text(struct iarray_reader *r, struct parts *parts,
  		parts_text_append(parts, text, line);
  		free_string(line);
  	}
@@ -18947,7 +19817,7 @@ index 728b06c..85e66c1 100644
  }
  
  static void save_parts_animation(struct iarray_writer *w, struct parts_animation *anim)
-@@ -134,15 +141,33 @@ static void load_parts_animation(struct iarray_reader *r, struct parts *parts,
+@@ -134,15 +142,33 @@ static void load_parts_animation(struct iarray_reader *r, struct parts *parts,
  	int nr_frames = iarray_read(r);
  	int frame_time = iarray_read(r);
  
@@ -18986,7 +19856,7 @@ index 728b06c..85e66c1 100644
  }
  
  static void save_parts_numeral(struct iarray_writer *w, struct parts_numeral *num)
-@@ -173,15 +198,25 @@ static void save_parts_gauge(struct iarray_writer *w, struct parts_gauge *gauge)
+@@ -173,15 +199,25 @@ static void save_parts_gauge(struct iarray_writer *w, struct parts_gauge *gauge)
  {
  	iarray_write(w, gauge->cg_no);
  	iarray_write_float(w, gauge->rate);
@@ -19015,7 +19885,7 @@ index 728b06c..85e66c1 100644
  		parts_gauge_set_cg_by_index(parts, gauge, gauge->cg_no);
  	if (vert)
  		parts_vgauge_set_rate(parts, gauge, gauge->rate);
-@@ -206,6 +241,7 @@ static void save_parts_cp_op(struct iarray_writer *w, struct parts_cp_op *op)
+@@ -206,6 +242,7 @@ static void save_parts_cp_op(struct iarray_writer *w, struct parts_cp_op *op)
  	case PARTS_CP_FILL_AMAP:
  	case PARTS_CP_FILL_WITH_ALPHA:
  	case PARTS_CP_DRAW_RECT:
@@ -19023,7 +19893,7 @@ index 728b06c..85e66c1 100644
  		iarray_write(w, op->fill.x);
  		iarray_write(w, op->fill.y);
  		iarray_write(w, op->fill.w);
-@@ -216,6 +252,7 @@ static void save_parts_cp_op(struct iarray_writer *w, struct parts_cp_op *op)
+@@ -216,6 +253,7 @@ static void save_parts_cp_op(struct iarray_writer *w, struct parts_cp_op *op)
  		iarray_write(w, op->fill.a);
  		break;
  	case PARTS_CP_DRAW_CUT_CG:
@@ -19031,7 +19901,7 @@ index 728b06c..85e66c1 100644
  	case PARTS_CP_COPY_CUT_CG:
  		iarray_write_string(w, op->cut_cg.cg_name);
  		iarray_write(w, op->cut_cg.dx);
-@@ -229,6 +266,7 @@ static void save_parts_cp_op(struct iarray_writer *w, struct parts_cp_op *op)
+@@ -229,6 +267,7 @@ static void save_parts_cp_op(struct iarray_writer *w, struct parts_cp_op *op)
  		iarray_write(w, op->cut_cg.interp_type);
  		break;
  	case PARTS_CP_DRAW_TEXT:
@@ -19039,7 +19909,7 @@ index 728b06c..85e66c1 100644
  	case PARTS_CP_COPY_TEXT:
  		iarray_write_string(w, op->text.text);
  		iarray_write(w, op->text.x);
-@@ -281,6 +319,7 @@ static struct parts_cp_op *load_parts_cp_op(struct iarray_reader *r, int version
+@@ -281,6 +320,7 @@ static struct parts_cp_op *load_parts_cp_op(struct iarray_reader *r, int version
  	case PARTS_CP_FILL_AMAP:
  	case PARTS_CP_FILL_WITH_ALPHA:
  	case PARTS_CP_DRAW_RECT:
@@ -19047,7 +19917,7 @@ index 728b06c..85e66c1 100644
  		op->fill.x = iarray_read(r);
  		op->fill.y = iarray_read(r);
  		op->fill.w = iarray_read(r);
-@@ -291,6 +330,7 @@ static struct parts_cp_op *load_parts_cp_op(struct iarray_reader *r, int version
+@@ -291,6 +331,7 @@ static struct parts_cp_op *load_parts_cp_op(struct iarray_reader *r, int version
  		op->fill.a = iarray_read(r);
  		break;
  	case PARTS_CP_DRAW_CUT_CG:
@@ -19055,7 +19925,7 @@ index 728b06c..85e66c1 100644
  	case PARTS_CP_COPY_CUT_CG:
  		op->cut_cg.cg_name = load_cp_cg_name(r, version);
  		op->cut_cg.dx = iarray_read(r);
-@@ -304,6 +344,7 @@ static struct parts_cp_op *load_parts_cp_op(struct iarray_reader *r, int version
+@@ -304,6 +345,7 @@ static struct parts_cp_op *load_parts_cp_op(struct iarray_reader *r, int version
  		op->cut_cg.interp_type = iarray_read(r);
  		break;
  	case PARTS_CP_DRAW_TEXT:
@@ -19063,7 +19933,7 @@ index 728b06c..85e66c1 100644
  	case PARTS_CP_COPY_TEXT:
  		op->text.text = iarray_read_string(r);
  		op->text.x = iarray_read(r);
-@@ -366,18 +407,108 @@ static void load_parts_flash(struct iarray_reader *r, struct parts *parts,
+@@ -366,18 +408,108 @@ static void load_parts_flash(struct iarray_reader *r, struct parts *parts,
  	parts_flash_seek(flash, iarray_read(r));
  }
  
@@ -19173,7 +20043,7 @@ index 728b06c..85e66c1 100644
  }
  
  static void save_parts_3dlayer(struct iarray_writer *w, struct parts_3dlayer *l)
-@@ -431,6 +562,10 @@ static void save_parts_state(struct iarray_writer *w, struct parts_state *state)
+@@ -431,6 +563,10 @@ static void save_parts_state(struct iarray_writer *w, struct parts_state *state)
  	iarray_write_rectangle(w, &state->common.hitbox);
  	iarray_write_rectangle(w, &state->common.surface_area);
  	switch (state->type) {
@@ -19184,7 +20054,7 @@ index 728b06c..85e66c1 100644
  	case PARTS_UNINITIALIZED:
  	case PARTS_MOVIE:
  	case PARTS_RECT_DETECTION:
-@@ -478,7 +613,17 @@ static void load_parts_state(struct iarray_reader *r, struct parts *parts,
+@@ -478,7 +614,17 @@ static void load_parts_state(struct iarray_reader *r, struct parts *parts,
  	iarray_read_point(r, &state->common.origin_offset);
  	iarray_read_rectangle(r, &state->common.hitbox);
  	iarray_read_rectangle(r, &state->common.surface_area);
@@ -19202,7 +20072,7 @@ index 728b06c..85e66c1 100644
  	case PARTS_UNINITIALIZED:
  	case PARTS_MOVIE:
  	case PARTS_RECT_DETECTION:
-@@ -491,7 +636,7 @@ static void load_parts_state(struct iarray_reader *r, struct parts *parts,
+@@ -491,7 +637,7 @@ static void load_parts_state(struct iarray_reader *r, struct parts *parts,
  		load_parts_cg(r, parts, &state->cg);
  		break;
  	case PARTS_TEXT:
@@ -19211,7 +20081,7 @@ index 728b06c..85e66c1 100644
  		break;
  	case PARTS_ANIMATION:
  		load_parts_animation(r, parts, &state->anim);
-@@ -500,10 +645,10 @@ static void load_parts_state(struct iarray_reader *r, struct parts *parts,
+@@ -500,10 +646,10 @@ static void load_parts_state(struct iarray_reader *r, struct parts *parts,
  		load_parts_numeral(r, parts, &state->num);
  		break;
  	case PARTS_HGAUGE:
@@ -19224,7 +20094,7 @@ index 728b06c..85e66c1 100644
  		break;
  	case PARTS_CONSTRUCTION_PROCESS:
  		load_parts_construction_process(r, parts, &state->cproc, version);
-@@ -512,12 +657,14 @@ static void load_parts_state(struct iarray_reader *r, struct parts *parts,
+@@ -512,12 +658,14 @@ static void load_parts_state(struct iarray_reader *r, struct parts *parts,
  		load_parts_flash(r, parts, &state->flash);
  		break;
  	case PARTS_FLAT:
@@ -19240,7 +20110,7 @@ index 728b06c..85e66c1 100644
  }
  
  static void save_parts_motion(struct iarray_writer *w, struct parts_motion *motion)
-@@ -634,13 +781,76 @@ static void save_parts(struct iarray_writer *w, struct parts *parts)
+@@ -634,13 +782,76 @@ static void save_parts(struct iarray_writer *w, struct parts *parts)
  	}
  
  	iarray_write_at(w, motion_count_pos, motion_count);
@@ -19318,7 +20188,7 @@ index 728b06c..85e66c1 100644
  	for (int i = 0; i < PARTS_NR_STATES; i++) {
  		load_parts_state(r, parts, &parts->states[i], version);
  	}
-@@ -677,10 +887,190 @@ static void load_parts(struct iarray_reader *r, int version)
+@@ -677,10 +888,191 @@ static void load_parts(struct iarray_reader *r, int version)
  		struct parts_motion *motion = load_parts_motion(r);
  		parts_add_motion(parts, motion);
  	}
@@ -19482,7 +20352,8 @@ index 728b06c..85e66c1 100644
 +			? back_scene_number(p->local.alpha_clipper_parts_no) : -1;
 +		p->local.alpha_clipper_parts_no=clipper<0 ? 0 : clipper;
 +	}
-+	if (r.error) { WARNING("LoadBackScene: truncated scene (%d parts read)",back_scene_count); PE_ClearBackScene(); return false; }
++	if (r.error) { WARNING("LoadBackScene: truncated scene (%d parts read)",back_scene_count); trace_log("BACKSCENE load failed after %d parts", back_scene_count); PE_ClearBackScene(); return false; }
++	trace_log("BACKSCENE load %d parts", back_scene_count);
 +	PE_UpdateComponent(0); parts_engine_dirty(); return true;
 +}
 +void PE_SetShowForBackScene(int no, bool show)
@@ -19509,7 +20380,7 @@ index 728b06c..85e66c1 100644
  }
  
  static void save_numeral_fonts(struct iarray_writer *w)
-@@ -693,10 +1083,12 @@ static void save_numeral_fonts(struct iarray_writer *w)
+@@ -693,10 +1085,12 @@ static void save_numeral_fonts(struct iarray_writer *w)
  		for (int i = 0; i < 12; i++) {
  			iarray_write(w, font->width[i]);
  		}
@@ -19523,7 +20394,7 @@ index 728b06c..85e66c1 100644
  {
  	parts_nr_numeral_fonts = iarray_read(r);
  	parts_numeral_fonts = xcalloc(parts_nr_numeral_fonts, sizeof(struct parts_numeral_font));
-@@ -707,11 +1099,23 @@ static void load_numeral_fonts(struct iarray_reader *r)
+@@ -707,11 +1101,23 @@ static void load_numeral_fonts(struct iarray_reader *r)
  		for (int i = 0; i < 12; i++) {
  			font->width[i] = iarray_read(r);
  		}
@@ -19548,7 +20419,7 @@ index 728b06c..85e66c1 100644
  {
  	// get parts into clean state first
  	PE_UpdateComponent(0);
-@@ -724,6 +1128,8 @@ static bool parts_engine_save(struct page **buffer, bool save_hidden)
+@@ -724,6 +1130,8 @@ static bool parts_engine_save(struct page **buffer, bool save_hidden)
  
  	iarray_write(&w, ctrl_stack.active);
  	iarray_write(&w, ctrl_stack.nr_controllers);
@@ -19557,7 +20428,7 @@ index 728b06c..85e66c1 100644
  
  	unsigned count_pos = iarray_writer_pos(&w);
  	iarray_write(&w, 0); // size of parts list
-@@ -735,6 +1141,8 @@ static bool parts_engine_save(struct page **buffer, bool save_hidden)
+@@ -735,6 +1143,8 @@ static bool parts_engine_save(struct page **buffer, bool save_hidden)
  			continue;
  		if (!parts->want_save)
  			continue;
@@ -19566,7 +20437,7 @@ index 728b06c..85e66c1 100644
  		save_parts(&w, parts);
  		count++;
  	}
-@@ -745,7 +1153,7 @@ static bool parts_engine_save(struct page **buffer, bool save_hidden)
+@@ -745,7 +1155,7 @@ static bool parts_engine_save(struct page **buffer, bool save_hidden)
  		delete_page_vars(*buffer);
  		free_page(*buffer);
  	}
@@ -19575,7 +20446,7 @@ index 728b06c..85e66c1 100644
  	iarray_free_writer(&w);
  	return true;
  
-@@ -753,12 +1161,34 @@ static bool parts_engine_save(struct page **buffer, bool save_hidden)
+@@ -753,12 +1163,34 @@ static bool parts_engine_save(struct page **buffer, bool save_hidden)
  
  bool PE_SaveWithoutHideParts(struct page **buffer)
  {
@@ -19612,7 +20483,7 @@ index 728b06c..85e66c1 100644
  }
  
  bool PE_Load(struct page **buffer)
-@@ -779,14 +1209,35 @@ bool PE_Load(struct page **buffer)
+@@ -779,14 +1211,35 @@ bool PE_Load(struct page **buffer)
  		return false;
  	}
  
@@ -19950,10 +20821,10 @@ index 24444aa..1ba1b93 100644
  	if (!parts_state_valid(--state))
 diff --git a/src/quicksave.c b/src/quicksave.c
 new file mode 100644
-index 0000000..f9b13d2
+index 0000000..4a5a324
 --- /dev/null
 +++ b/src/quicksave.c
-@@ -0,0 +1,498 @@
+@@ -0,0 +1,501 @@
 +/* Copyright (C) 2019 Nunuhara Cabbage <nunuhara@haniwa.technology>
 + *
 + * This program is free software; you can redistribute it and/or modify
@@ -20004,6 +20875,7 @@ index 0000000..f9b13d2
 +#include "xsystem4.h"
 +#include "vm.h"
 +#include "quicksave.h"
++#include "parts.h"
 +
 +#include "cJSON.h"
 +
@@ -20173,6 +21045,7 @@ index 0000000..f9b13d2
 +	quicksave_name(kind, slot, name, sizeof(name));
 +	NOTICE("QUICKSAVE loading kind=%d slot=%d (%s)", kind, slot, name);
 +	vm_load_image(QUICKSAVE_KEY, name);
++	vm_restore_input_depth();
 +}
 +
 +/*
@@ -20307,6 +21180,7 @@ index 0000000..f9b13d2
 +	quicksave_name(kind, slot, name, sizeof(name));
 +	NOTICE("QUICKSAVE auto-resume from kind=%d slot=%d (%s)", kind, slot, name);
 +	vm_load_image(QUICKSAVE_KEY, name);
++	vm_restore_input_depth();
 +	return true;
 +}
 +
@@ -20453,7 +21327,7 @@ index 0000000..f9b13d2
 +}
 +#endif
 diff --git a/src/resume.c b/src/resume.c
-index 1c57fac..2021847 100644
+index 1c57fac..67e92f7 100644
 --- a/src/resume.c
 +++ b/src/resume.c
 @@ -25,6 +25,8 @@
@@ -20532,16 +21406,37 @@ index 1c57fac..2021847 100644
  }
  
  static void save_stack_to_rsave(struct rsave *rs)
-@@ -398,7 +419,7 @@ static int save_rsave_image(const char *key, const char *path)
+@@ -382,23 +403,25 @@ static int save_rsave_image(const char *key, const char *path)
+ 	if (!save)
+ 		return 0;
+ 	char *full_path = savedir_path(path);
+-	FILE *fp = file_open_utf8(full_path, "wb");
++	char *tmp_path;
++	FILE *fp = atomic_file_open(full_path, &tmp_path);
+ 	if (!fp) {
+ 		WARNING("Failed to open save file %s: %s", display_utf0(full_path), strerror(errno));
+ 		free(full_path);
+ 		rsave_free(save);
+ 		return 0;
+ 	}
+-	free(full_path);
+ 
+ 	bool encrypt = true;
+ 	int compression_level = 1;
+ 	enum savefile_error error = rsave_write(save, fp, encrypt, compression_level);
+ 	if (error != SAVEFILE_SUCCESS)
  		WARNING("Failed to write save file: %s", savefile_strerror(error));
- 	fclose(fp);
+-	fclose(fp);
++	// The previous save stays in place unless the new one was fully written.
++	bool ok = atomic_file_commit(fp, tmp_path, full_path, error == SAVEFILE_SUCCESS);
++	free(full_path);
  	rsave_free(save);
 -	return 1;
-+	return error == SAVEFILE_SUCCESS;
++	return ok;
  }
  
  static int save_json_image(const char *key, const char *path)
-@@ -411,6 +432,10 @@ static int save_json_image(const char *key, const char *path)
+@@ -411,6 +434,10 @@ static int save_json_image(const char *key, const char *path)
  
  int vm_save_image(const char *key, const char *path)
  {
@@ -20552,7 +21447,7 @@ index 1c57fac..2021847 100644
  	switch (config.save_format) {
  	case SAVE_FORMAT_RSM:
  		return save_rsave_image(key, path);
-@@ -470,8 +495,19 @@ static void load_json_page(int slot, cJSON *json)
+@@ -470,8 +497,19 @@ static void load_json_page(int slot, cJSON *json)
  
  	// allocate page
  	struct page *page = alloc_page(page_type, subtype->valueint, cJSON_GetArraySize(values));
@@ -20574,7 +21469,7 @@ index 1c57fac..2021847 100644
  
  	// init page variables
  	int i = 0;
-@@ -480,6 +516,7 @@ static void load_json_page(int slot, cJSON *json)
+@@ -480,6 +518,7 @@ static void load_json_page(int slot, cJSON *json)
  		page->values[i].i = item->valueint;
  		i++;
  	}
@@ -20582,7 +21477,7 @@ index 1c57fac..2021847 100644
  
  	heap[slot].page = page;
  	heap[slot].type = VM_PAGE;
-@@ -567,6 +604,75 @@ static void load_json_heap(cJSON *json)
+@@ -567,6 +606,75 @@ static void load_json_heap(cJSON *json)
  	}
  }
  
@@ -20658,7 +21553,7 @@ index 1c57fac..2021847 100644
  static int resolve_func_symbol(struct rsave_symbol *sym)
  {
  	if (!sym->name)
-@@ -676,6 +782,7 @@ static void load_rsave_struct(int slot, struct rsave_heap_struct *s)
+@@ -676,6 +784,7 @@ static void load_rsave_struct(int slot, struct rsave_heap_struct *s)
  		// TODO: update function pointers using rsave->func_names
  		page->values[i].i = s->slots[i];
  	}
@@ -20666,7 +21561,7 @@ index 1c57fac..2021847 100644
  
  	alloc_heap_slot(slot);
  	heap[slot].ref = s->ref;
-@@ -722,8 +829,10 @@ static void load_json_call_stack(cJSON *json)
+@@ -722,8 +831,10 @@ static void load_json_call_stack(cJSON *json)
  	cJSON *item;
  	cJSON_ArrayForEach(item, json) {
  		type_check(cJSON_Object, item);
@@ -20677,7 +21572,7 @@ index 1c57fac..2021847 100644
  			.return_address = type_check(cJSON_Number, cJSON_GetObjectItem(item, "return-address"))->valueint,
  			.page_slot      = type_check(cJSON_Number, cJSON_GetObjectItem(item, "local-page"))->valueint,
  			.struct_page    = type_check(cJSON_Number, cJSON_GetObjectItem(item, "struct-page"))->valueint,
-@@ -764,9 +873,9 @@ static void load_rsave_call_stack(struct rsave *save)
+@@ -764,9 +875,9 @@ static void load_rsave_call_stack(struct rsave *save)
  		if (++rr == save->return_records + save->nr_return_records)
  			rr = &save->ip;
  	}
@@ -20690,7 +21585,7 @@ index 1c57fac..2021847 100644
  }
  
  static void load_json_stack(cJSON *json)
-@@ -821,10 +930,13 @@ static void load_json_image(const char *key, const char *path)
+@@ -821,10 +932,13 @@ static void load_json_image(const char *key, const char *path)
  		VM_ERROR("Failed to read VM image: '%s'", display_sjis0(path));
  	}
  	cJSON *ip = type_check(cJSON_Number, cJSON_GetObjectItem(save, "ip"));
@@ -20705,7 +21600,36 @@ index 1c57fac..2021847 100644
  	if (ain->nr_delegates > 0) {
  		cJSON *next_seq = type_check(cJSON_Number, cJSON_GetObjectItem(save, "next_seq"));
  		heap_next_seq = next_seq->valueint;
-@@ -1028,6 +1140,8 @@ static int write_json_image_comments(const char *key, const char *path, struct p
+@@ -984,23 +1098,24 @@ static int write_rsave_image_comments(const char *key, const char *path, struct
+ 		save->comments[i] = xstrdup(heap_get_string(comments->values[i].i)->text);
+ 	}
+ 
+-	FILE *fp = file_open_utf8(full_path, "wb");
++	char *tmp_path;
++	FILE *fp = atomic_file_open(full_path, &tmp_path);
+ 	if (!fp) {
+ 		WARNING("Failed to open save file %s: %s", display_utf0(full_path), strerror(errno));
+ 		free(full_path);
+ 		rsave_free(save);
+ 		return 0;
+ 	}
+-	free(full_path);
+ 
+ 	bool encrypt = true;
+ 	int compression_level = 1;
+ 	error = rsave_write(save, fp, encrypt, compression_level);
+ 	if (error != SAVEFILE_SUCCESS)
+ 		WARNING("Failed to write save file: %s", savefile_strerror(error));
+-	fclose(fp);
++	bool ok = atomic_file_commit(fp, tmp_path, full_path, error == SAVEFILE_SUCCESS);
++	free(full_path);
+ 	rsave_free(save);
+-	return 1;
++	return ok;
+ }
+ 
+ static int write_json_image_comments(const char *key, const char *path, struct page *comments)
+@@ -1028,6 +1143,8 @@ static int write_json_image_comments(const char *key, const char *path, struct p
  
  int vm_write_image_comments(const char *key, const char *path, struct page *comments)
  {
@@ -20715,7 +21639,7 @@ index 1c57fac..2021847 100644
  	case SAVE_FORMAT_RSM:
  		return write_rsave_image_comments(key, path, comments);
 diff --git a/src/savedata.c b/src/savedata.c
-index 1e3fd72..5e5e480 100644
+index 1e3fd72..52e019c 100644
 --- a/src/savedata.c
 +++ b/src/savedata.c
 @@ -19,6 +19,8 @@
@@ -20750,7 +21674,41 @@ index 1e3fd72..5e5e480 100644
  #define invalid_save_data(msg, data) {					\
  		char *str = data ? cJSON_Print(data) : strdup("NULL");	\
  		if (!str) str = strdup("PRINTING FAILED");		\
-@@ -115,12 +133,16 @@ static int32_t add_value_to_gsave(enum ain_data_type type, union vm_value val, s
+@@ -45,28 +63,13 @@ static int current_global;
+ int save_json(const char *filename, cJSON *json)
+ {
+ 	char *path = savedir_path(filename);
+-	FILE *f = file_open_utf8(path, "w");
+-	if (!f) {
+-		WARNING("Failed to open save file: %s: %s", display_utf0(filename), strerror(errno));
+-		free(path);
+-		return 0;
+-	}
+-	free(path);
+-
+ 	char *str = cJSON_Print(json);
+-
+-	if (fwrite(str, strlen(str), 1, f) != 1) {
+-		WARNING("Failed to write save file: %s", strerror(errno));
+-		free(str);
+-		return 0;
+-	}
+-	if (fclose(f)) {
+-		WARNING("Error writing save to file: %s: %s", display_utf0(filename), strerror(errno));
+-		free(str);
+-		return 0;
+-	}
++	bool ok = str && atomic_file_write(path, str, strlen(str));
++	if (!ok)
++		WARNING("Failed to write save file: %s", display_utf0(filename));
+ 	free(str);
+-	return 1;
++	free(path);
++	return ok;
+ }
+ 
+ cJSON *load_json(const char *filename)
+@@ -115,12 +118,16 @@ static int32_t add_value_to_gsave(enum ain_data_type type, union vm_value val, s
  	switch (type) {
  	case AIN_VOID:
  	case AIN_INT:
@@ -20768,7 +21726,7 @@ index 1e3fd72..5e5e480 100644
  	case AIN_STRING:
  		return gsave_add_string(save, heap[val.i].s);
  	case AIN_STRUCT:
-@@ -152,6 +174,7 @@ static int32_t add_value_to_gsave(enum ain_data_type type, union vm_value val, s
+@@ -152,6 +159,7 @@ static int32_t add_value_to_gsave(enum ain_data_type type, union vm_value val, s
  			}
  			return gsave_add_record(save, &rec);
  		}
@@ -20776,7 +21734,7 @@ index 1e3fd72..5e5e480 100644
  	case AIN_ARRAY_TYPE:
  		{
  			struct page *page = heap_get_page(val.i);
-@@ -191,6 +214,114 @@ static int get_gsave_version(void)
+@@ -191,6 +199,118 @@ static int get_gsave_version(void)
  	return AIN_VERSION_GTE(ain, 5, 0) ? 5 : 4;
  }
  
@@ -20850,14 +21808,18 @@ index 1e3fd72..5e5e480 100644
 +	free(save);
 +	if (!exists) return false;
 +	char *path = group_comment_path(filename);
-+	FILE *fp = file_open_utf8(path, "wb");
-+	free(path);
-+	if (!fp) return false;
++	char *tmp_path;
++	FILE *fp = atomic_file_open(path, &tmp_path);
++	if (!fp) {
++		free(path);
++		return false;
++	}
 +	uint32_t header[] = {0x31434758, key->size, comment->size}; // XGC1
 +	bool ok = fwrite(header, sizeof(header), 1, fp) == 1
 +		&& fwrite(key->text, 1, key->size, fp) == key->size
 +		&& fwrite(comment->text, 1, comment->size, fp) == comment->size;
-+	if (fclose(fp)) ok = false;
++	ok = atomic_file_commit(fp, tmp_path, path, ok);
++	free(path);
 +	return ok;
 +}
 +
@@ -20891,7 +21853,36 @@ index 1e3fd72..5e5e480 100644
  int save_globals(const char *keyname, const char *filename, const char *group_name, int *n_out)
  {
  	int group = -1;
-@@ -270,6 +401,7 @@ void json_load_page(struct page *page, cJSON *vars, bool call_dtors)
+@@ -224,21 +344,25 @@ int save_globals(const char *keyname, const char *filename, const char *group_na
+ 	}
+ 
+ 	char *path = savedir_path(filename);
+-	FILE *fp = file_open_utf8(path, "wb");
++	char *tmp_path;
++	FILE *fp = atomic_file_open(path, &tmp_path);
+ 	if (!fp) {
+ 		WARNING("Failed to open save file %s: %s", display_utf0(path), strerror(errno));
+ 		free(path);
+ 		gsave_free(save);
+ 		return 0;
+ 	}
+-	free(path);
+ 
+ 	bool encrypt = !AIN_VERSION_GTE(ain, 6, 0);
+ 	int compression_level = AIN_VERSION_GTE(ain, 6, 0) ? 1 : 9;
+ 	enum savefile_error error = gsave_write(save, fp, encrypt, compression_level);
+ 	if (error != SAVEFILE_SUCCESS)
+ 		WARNING("Failed to write save file: %s", savefile_strerror(error));
+-	fclose(fp);
++	// Keep the previous save unless the new one was fully written.
++	if (!atomic_file_commit(fp, tmp_path, path, error == SAVEFILE_SUCCESS)
++			&& error == SAVEFILE_SUCCESS)
++		error = SAVEFILE_FILE_ERROR;
++	free(path);
+ 	gsave_free(save);
+ 	if (n_out)
+ 		*n_out = nr_vars;
+@@ -270,6 +394,7 @@ void json_load_page(struct page *page, cJSON *vars, bool call_dtors)
  			page->values[i] = val;
  		i++;
  	}
@@ -20899,7 +21890,7 @@ index 1e3fd72..5e5e480 100644
  }
  
  static union vm_value json_to_vm_value(enum ain_data_type type, enum ain_data_type struct_type, int array_rank, cJSON *json)
-@@ -280,6 +412,7 @@ static union vm_value json_to_vm_value(enum ain_data_type type, enum ain_data_ty
+@@ -280,6 +405,7 @@ static union vm_value json_to_vm_value(enum ain_data_type type, enum ain_data_ty
  	struct page *page;
  	switch (type) {
  	case AIN_INT:
@@ -20907,7 +21898,7 @@ index 1e3fd72..5e5e480 100644
  	case AIN_BOOL:
  	case AIN_LONG_INT:
  		if (!cJSON_IsNumber(json)) {
-@@ -458,6 +591,7 @@ static struct gsave_flat_array *gsave_load_array(struct gsave *save, struct page
+@@ -458,6 +584,7 @@ static struct gsave_flat_array *gsave_load_array(struct gsave *save, struct page
  		if (data_type != flat_array->values[i].type)
  			VM_ERROR("Bad save file: unexpected array element type");
  		union vm_value val = gsave_to_vm_value(save, data_type, struct_type, array_rank, flat_array->values[i].value);
@@ -20915,7 +21906,7 @@ index 1e3fd72..5e5e480 100644
  		page->values[i] = val;
  	}
  	return flat_array + 1;
-@@ -468,10 +602,14 @@ static union vm_value gsave_to_vm_value(struct gsave *save, enum ain_data_type t
+@@ -468,10 +595,14 @@ static union vm_value gsave_to_vm_value(struct gsave *save, enum ain_data_type t
  	switch (type) {
  	case AIN_VOID:
  	case AIN_INT:
@@ -20930,7 +21921,7 @@ index 1e3fd72..5e5e480 100644
  	case AIN_STRING:
  		{
  			int slot = heap_alloc_slot(VM_STRING);
-@@ -503,18 +641,46 @@ static union vm_value gsave_to_vm_value(struct gsave *save, enum ain_data_type t
+@@ -503,18 +634,46 @@ static union vm_value gsave_to_vm_value(struct gsave *save, enum ain_data_type t
  				if (data_type != field_type)
  					VM_ERROR("Bad save file: structure member type mismatch");
  				union vm_value val = gsave_to_vm_value(save, data_type, struct_type, array_rank, kv->value);
@@ -21449,10 +22440,10 @@ index 0000000..d2453ac
 +#endif
 diff --git a/src/trace_log.c b/src/trace_log.c
 new file mode 100644
-index 0000000..3717bfd
+index 0000000..6636db1
 --- /dev/null
 +++ b/src/trace_log.c
-@@ -0,0 +1,383 @@
+@@ -0,0 +1,398 @@
 +/* Persistent gameplay trace for diagnosing reports after the fact.
 + *
 + * Logcat is cleared when the tablet reboots, which lost the only record of
@@ -21599,6 +22590,7 @@ index 0000000..3717bfd
 +	"SnapShotSaveManager::Save",
 +	"SnapShotSaveManager::Load",
 +	"GameChapter1@Run",
++	"backscene::detail::CBackSceneView@",
 +	"gamesave::detail::\xb4\xe6\xb5\xb5\x8cg\xd0\xd0", // 存档実行*
 +};
 +static const char *const traced_names[] = {
@@ -21620,6 +22612,11 @@ index 0000000..3717bfd
 +	"SceneQuestMap@DebugForceExit",
 +	"SceneQuestMap@Exit",
 +	"BattleSceneSet@Open",
++	"\xa3\xd3\xa3\xdf\xb3\xa1\xbe\xb0\xbb\xd8\xb9\xcb", // Ｓ＿场景回顾
++	"backscene::detail::GetNumofADVScene",
++	"activity::detail::IsExistFile",
++	"\xa3\xd0\xa3\xdf\xa5\xa2\xa5\xaf\xa5\xc6\xa5\xa3\xa5\xd3\xa5\xc6\xa5\xa3\x8c" "g\xd0\xd0", // activity run
++	"SceneQuestSelect@GetResult",
 +};
 +
 +/* The release script's DialogScenes::RunTestDialog is an empty function, yet
@@ -21636,16 +22633,22 @@ index 0000000..3717bfd
 +};
 +
 +/* The base-camp quest list once returned "" for a confirmed choice, so the
-+ * turn passed with "任务[]は登录されていません". Record the list and the
-+ * selected index of `this` on entry and exit of every step that touches them:
-+ * slot numbers, reference counts and allocation sequence numbers show whether
-+ * a string was freed and its slot reused in between. */
++ * turn passed with "任务[]は登录されていません". Cause: a stale delegate
++ * entry released the closure of RunIScene's postEvent, so GetResult never ran
++ * (fixed in delegate_get). Record the list and the selected index of `this`
++ * on entry and exit of every step that touches them, to confirm the fix. */
 +#define TRACE_DUMP_THIS 3
 +static const char *const dump_names[] = {
 +	"QuestList@Load",
 +	"SceneQuestSelectBaseCamp@LoadQuestList",
 +	"SceneQuestSelectBaseCamp@GetResult",
 +	"SceneQuestSelectBaseCamp@<lambda : SceneQuestSelectBaseCamp@0(ref SceneStack)(43, 37)>",
++};
++
++/* Lambdas are not matched by the lists above (UI callbacks run every
++ * frame); these run only on a player's action. */
++static const char *const lambda_prefixes[] = {
++	"AdvShortcutButton@<lambda : AdvShortcutButton@Init()", // shortcut buttons
 +};
 +
 +static struct ain *traced_ain;
@@ -21668,6 +22671,9 @@ index 0000000..3717bfd
 +			traced[i] = TRACE_DUMP_THIS;
 +			continue;
 +		}
++		for (size_t j = 0; name && j < sizeof(lambda_prefixes) / sizeof(*lambda_prefixes); j++)
++			if (!strncmp(name, lambda_prefixes[j], strlen(lambda_prefixes[j])))
++				traced[i] = 1;
 +		if (!name || strstr(name, "<lambda"))
 +			continue;
 +		for (size_t j = 0; j < sizeof(traced_names) / sizeof(*traced_names); j++)
@@ -21837,10 +22843,25 @@ index 0000000..3717bfd
 +		trace_dump_this("leave", fno);
 +}
 diff --git a/src/util.c b/src/util.c
-index 1cf7ffa..3b33fba 100644
+index 1cf7ffa..d1aa0fa 100644
 --- a/src/util.c
 +++ b/src/util.c
-@@ -109,7 +109,11 @@ const char *display_utf2(const char *utf)
+@@ -29,6 +29,14 @@
+ #include "xsystem4.h"
+ #include "debugger.h"
+ 
++#ifdef _WIN32
++#include <windows.h>
++#include <io.h>
++#else
++#include <fcntl.h>
++#include <unistd.h>
++#endif
++
+ // In a Windows environment, console output should be SJIS-encoded
+ // (assuming the user is using Japanese non-unicode locale).
+ #if (defined(_WIN32) || defined(__WIN32))
+@@ -109,7 +117,11 @@ const char *display_utf2(const char *utf)
  
  char *unix_path(const char *path)
  {
@@ -21853,7 +22874,7 @@ index 1cf7ffa..3b33fba 100644
  	for (int i = 0; utf[i]; i++) {
  		if (utf[i] == '\\')
  			utf[i] = '/';
-@@ -158,8 +162,46 @@ char *gamedir_path_icase(const char *path)
+@@ -158,8 +170,46 @@ char *gamedir_path_icase(const char *path)
  	return resolved;
  }
  
@@ -21900,6 +22921,100 @@ index 1cf7ffa..3b33fba 100644
  	return resolve_path(config.save_dir, path);
  }
  
+@@ -208,3 +258,93 @@ void log_message(const char *log, const char *fmt, ...)
+ 		sys_vmessage(fmt, ap);
+ 	va_end(ap);
+ }
++
++/*
++ * Crash-safe file replacement (see xsystem4.h). Android may kill the app at
++ * any moment (low memory, swipe away, power loss); opening a save with "wb"
++ * truncated the previous one first, so a kill or a failed write in between
++ * left an empty or partial save and the player lost the slot.
++ */
++FILE *atomic_file_open(const char *path, char **tmp_path)
++{
++	size_t n = strlen(path);
++	char *tmp = xmalloc(n + 5);
++	memcpy(tmp, path, n);
++	memcpy(tmp + n, ".tmp", 5);
++	FILE *fp = file_open_utf8(tmp, "wb");
++	if (!fp) {
++		free(tmp);
++		*tmp_path = NULL;
++		return NULL;
++	}
++	*tmp_path = tmp;
++	return fp;
++}
++
++static bool atomic_sync(FILE *fp)
++{
++#ifdef _WIN32
++	return _commit(_fileno(fp)) == 0;
++#else
++	return fsync(fileno(fp)) == 0;
++#endif
++}
++
++static bool atomic_rename(const char *from, const char *to)
++{
++#ifdef _WIN32
++	wchar_t *src = utf8_to_wchar(from), *dst = utf8_to_wchar(to);
++	bool ok = MoveFileExW(src, dst, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
++	free(src);
++	free(dst);
++	return ok;
++#else
++	if (rename(from, to))
++		return false;
++	// Persist the directory entry too, so the rename itself survives a crash.
++	const char *slash = strrchr(to, '/');
++	if (slash && slash > to) {
++		char *dir = strndup(to, slash - to);
++		int fd = open(dir, O_RDONLY);
++		if (fd >= 0) {
++			fsync(fd);
++			close(fd);
++		}
++		free(dir);
++	}
++	return true;
++#endif
++}
++
++bool atomic_file_commit(FILE *fp, char *tmp_path, const char *path, bool ok)
++{
++	if (!fp || !tmp_path) {
++		free(tmp_path);
++		return false;
++	}
++	if (fflush(fp) || ferror(fp))
++		ok = false;
++	if (ok && !atomic_sync(fp))
++		ok = false;
++	if (fclose(fp))
++		ok = false;
++	if (ok && !atomic_rename(tmp_path, path))
++		ok = false;
++	if (!ok) {
++		WARNING("Could not save '%s' (%s); the previous file was kept",
++				display_utf0(path), strerror(errno));
++		remove_utf8(tmp_path);
++	}
++	free(tmp_path);
++	return ok;
++}
++
++bool atomic_file_write(const char *path, const void *data, size_t size)
++{
++	char *tmp;
++	FILE *fp = atomic_file_open(path, &tmp);
++	if (!fp)
++		return false;
++	bool ok = !size || fwrite(data, size, 1, fp) == 1;
++	return atomic_file_commit(fp, tmp, path, ok);
++}
 diff --git a/src/video.c b/src/video.c
 index e1ebcd9..97e8607 100644
 --- a/src/video.c
@@ -22044,19 +23159,20 @@ index e1ebcd9..97e8607 100644
  }
  
 diff --git a/src/vm.c b/src/vm.c
-index f8ccd7e..8ff77bc 100644
+index f8ccd7e..1ac1b31 100644
 --- a/src/vm.c
 +++ b/src/vm.c
-@@ -39,6 +39,8 @@
+@@ -39,6 +39,9 @@
  #include "vm/heap.h"
  #include "vm/page.h"
  #include "xsystem4.h"
 +#include "trace_log.h"
 +#include "quicksave.h"
++#include "parts.h"
  
  static inline int32_t lint_clamp(int64_t n)
  {
-@@ -136,6 +138,7 @@ void global_set(int varno, union vm_value val, bool call_dtors)
+@@ -136,6 +139,7 @@ void global_set(int varno, union vm_value val, bool call_dtors)
  	case AIN_STRING:
  	case AIN_STRUCT:
  	case AIN_ARRAY_TYPE:
@@ -22064,7 +23180,7 @@ index f8ccd7e..8ff77bc 100644
  		if (heap[0].page->values[varno].i > 0) {
  			if (call_dtors)
  				heap_unref(heap[0].page->values[varno].i);
-@@ -183,6 +186,7 @@ union vm_value stack_peek(int n)
+@@ -183,6 +187,7 @@ union vm_value stack_peek(int n)
  
  union vm_value stack_pop(void)
  {
@@ -22072,7 +23188,7 @@ index f8ccd7e..8ff77bc 100644
  	stack_ptr--;
  	return stack[stack_ptr];
  }
-@@ -192,27 +196,37 @@ static union vm_value *stack_peek_ptr(int n)
+@@ -192,27 +197,37 @@ static union vm_value *stack_peek_ptr(int n)
  	return &stack[stack_ptr - (1 + n)];
  }
  
@@ -22125,7 +23241,7 @@ index f8ccd7e..8ff77bc 100644
  }
  
  static void stack_push_string(struct string *s)
-@@ -249,8 +263,10 @@ union vm_value vm_copy(union vm_value v, enum ain_data_type type)
+@@ -249,8 +264,10 @@ union vm_value vm_copy(union vm_value v, enum ain_data_type type)
  	case AIN_STRUCT:
  	case AIN_DELEGATE:
  	case AIN_ARRAY_TYPE:
@@ -22136,7 +23252,7 @@ index f8ccd7e..8ff77bc 100644
  		heap_ref(v.i);
  		return v;
  	default:
-@@ -371,9 +387,40 @@ static void scenario_call(int slot)
+@@ -371,9 +388,40 @@ static void scenario_call(int slot)
  static int _function_call(int fno, int return_address)
  {
  	struct ain_function *f = &ain->functions[fno];
@@ -22177,7 +23293,7 @@ index f8ccd7e..8ff77bc 100644
  
  	call_stack[call_stack_ptr++] = (struct function_call) {
  		.fno = fno,
-@@ -405,43 +452,207 @@ static void function_call(int fno, int return_address)
+@@ -405,43 +453,207 @@ static void function_call(int fno, int return_address)
  		heap[slot].page->values[i] = stack_pop();
  		switch (f->vars[i].type.data) {
  		case AIN_REF_TYPE:
@@ -22387,7 +23503,7 @@ index f8ccd7e..8ff77bc 100644
  
  		// copy arguments into local page
  		struct ain_function_type *dg = &ain->delegates[dg_no];
-@@ -451,12 +662,25 @@ static void delegate_call(int dg_no, int return_address)
+@@ -451,12 +663,25 @@ static void delegate_call(int dg_no, int return_address)
  		}
  
  		set_struct_page(obj);
@@ -22417,7 +23533,7 @@ index f8ccd7e..8ff77bc 100644
  		stack_pop(); // dg_index
  		stack_pop(); // dg_page
  		for (int i = ain->delegates[dg_no].nr_variables - 1; i >= 0; i--) {
-@@ -464,15 +688,19 @@ static void delegate_call(int dg_no, int return_address)
+@@ -464,15 +689,19 @@ static void delegate_call(int dg_no, int return_address)
  			enum ain_data_type type = ain->delegates[dg_no].variables[i].type.data;
  			switch (type) {
  			case AIN_REF_TYPE:
@@ -22440,7 +23556,7 @@ index f8ccd7e..8ff77bc 100644
  		instr_ptr = get_argument(1);
  	}
  }
-@@ -483,7 +711,12 @@ void vm_call(int fno, int struct_page)
+@@ -483,7 +712,12 @@ void vm_call(int fno, int struct_page)
  	if (struct_page < 0) {
  		function_call(fno, VM_RETURN);
  	} else {
@@ -22454,7 +23570,7 @@ index f8ccd7e..8ff77bc 100644
  		method_call(fno, VM_RETURN);
  	}
  	vm_execute();
-@@ -492,6 +725,31 @@ void vm_call(int fno, int struct_page)
+@@ -492,6 +726,31 @@ void vm_call(int fno, int struct_page)
  
  static void function_return(void)
  {
@@ -22486,7 +23602,7 @@ index f8ccd7e..8ff77bc 100644
  	unref_call_frame(&call_stack[call_stack_ptr-1]);
  	instr_ptr = call_stack[call_stack_ptr-1].return_address;
  	call_stack_ptr--;
-@@ -507,7 +765,7 @@ static const SDL_MessageBoxButtonData stop_continue_buttons[] = {
+@@ -507,7 +766,7 @@ static const SDL_MessageBoxButtonData stop_continue_buttons[] = {
  	{ 0, 0, "Continue" },
  };
  
@@ -22495,7 +23611,16 @@ index f8ccd7e..8ff77bc 100644
  {
  	int i = call_stack_ptr - (1 + index);
  	if (i < 0 || i >= call_stack_ptr) {
-@@ -631,9 +889,13 @@ static void system_call(enum syscall_code code)
+@@ -600,6 +859,8 @@ static void system_call(enum syscall_code code)
+ 		int filename_slot = stack_pop().i;
+ 		int key_slot = stack_pop().i;
+ 		vm_load_image(heap_get_string(key_slot)->text, heap_get_string(filename_slot)->text);
++		// The restored stack decides how many WaitForClick loops are open.
++		vm_restore_input_depth();
+ 		stack_push(0);
+ 		break;
+ 	}
+@@ -631,9 +892,13 @@ static void system_call(enum syscall_code code)
  	};
  	case SYS_GET_SAVE_FOLDER_NAME: {// system.GetSaveFolderName(void)
  		if (config.save_dir) {
@@ -22512,10 +23637,92 @@ index f8ccd7e..8ff77bc 100644
  		} else {
  			stack_push_string(string_ref(&EMPTY_STRING));
  		}
-@@ -786,6 +1048,36 @@ static void system_call(enum syscall_code code)
+@@ -786,6 +1051,118 @@ static void system_call(enum syscall_code code)
  	}
  }
  
++/*
++ * After a load the restored stack decides how many input waits are open. In
++ * Rance 10 only parts::detail::WaitForClick and CActivity@UpdateActivity open
++ * input: BeginInput before the wait loop, EndInput after it, each through a
++ * one-call wrapper. A frame stopped between the two holds one level.
++ */
++static int input_hll_delta(int lib, int fn)
++{
++	if (lib < 0 || lib >= ain->nr_libraries || strcmp(ain->libraries[lib].name, "PartsEngine"))
++		return 0;
++	if (fn < 0 || fn >= ain->libraries[lib].nr_functions)
++		return 0;
++	const char *name = ain->libraries[lib].functions[fn].name;
++	return !strcmp(name, "BeginInput") ? 1 : !strcmp(name, "EndInput") ? -1 : 0;
++}
++
++// +1/-1 for a function whose body is only a BeginInput/EndInput HLL call.
++static int input_wrapper_delta(int fno)
++{
++	if (fno < 0 || fno >= ain->nr_functions)
++		return 0;
++	size_t ip = ain->functions[fno].address;
++	int delta = 0;
++	for (int n = 0; n < 8 && ip + 2 <= ain->code_size; n++) {
++		enum opcode op = LittleEndian_getW(ain->code, ip);
++		if (op == CALLHLL)
++			delta += input_hll_delta(LittleEndian_getDW(ain->code, ip + 2),
++					LittleEndian_getDW(ain->code, ip + 6));
++		else if (op == RETURN)
++			return delta;
++		else if (op == CALLFUNC || op == CALLMETHOD || op == ENDFUNC)
++			return 0;
++		ip += instruction_width(op);
++	}
++	return 0;
++}
++
++static int input_frame_depth(int fno, size_t pos)
++{
++	if (fno < 0 || fno >= ain->nr_functions)
++		return 0;
++	size_t ip = ain->functions[fno].address;
++	if (pos < ip || pos > ain->code_size)
++		return 0;
++	int depth = 0, nested = 0;
++	while (ip < pos && ip + 2 <= ain->code_size) {
++		enum opcode op = LittleEndian_getW(ain->code, ip);
++		// Lambda bodies are emitted inline (FUNC..ENDFUNC, jumped over).
++		if (op == FUNC) {
++			nested++;
++		} else if (op == ENDFUNC) {
++			if (!nested)
++				break;
++			nested--;
++		} else if (!nested && op == CALLHLL) {
++			depth += input_hll_delta(LittleEndian_getDW(ain->code, ip + 2),
++					LittleEndian_getDW(ain->code, ip + 6));
++		} else if (!nested && op == CALLFUNC) {
++			depth += input_wrapper_delta(LittleEndian_getDW(ain->code, ip + 2));
++		}
++		ip += instruction_width(op);
++	}
++	return depth > 0 ? depth : 0;
++}
++
++unsigned vm_input_depth_from_stack(void)
++{
++	unsigned depth = 0;
++	for (int i = 0; i < call_stack_ptr; i++) {
++		// Where this frame stopped: the next frame's return address, or the
++		// current instruction for the innermost frame.
++		size_t pos = i + 1 < call_stack_ptr ? call_stack[i + 1].return_address : instr_ptr;
++		depth += input_frame_depth(call_stack[i].fno, pos);
++	}
++	return depth;
++}
++
++void vm_restore_input_depth(void)
++{
++	PE_ResetInputDepth(vm_input_depth_from_stack());
++}
++
 +static int system_resume_hll_syscall(struct ain_hll_function *f)
 +{
 +	if (f->nr_arguments < 2 || f->arguments[0].type.data != AIN_STRING
@@ -22549,7 +23756,7 @@ index f8ccd7e..8ff77bc 100644
  uint32_t get_switch_address(int no, int val)
  {
  	struct ain_switch *s = &ain->switches[no];
-@@ -844,11 +1136,43 @@ static enum opcode execute_instruction(enum opcode opcode)
+@@ -844,11 +1221,43 @@ static enum opcode execute_instruction(enum opcode opcode)
  	}
  	case REFREF: {
  		// Dereference a reference to a reference.
@@ -22594,7 +23801,7 @@ index f8ccd7e..8ff77bc 100644
  	case DUP: {
  		// A -> AA
  		stack_push(stack_peek(0).i);
-@@ -989,7 +1313,16 @@ static enum opcode execute_instruction(enum opcode opcode)
+@@ -989,7 +1398,16 @@ static enum opcode execute_instruction(enum opcode opcode)
  	}
  	case NEW: {
  		union vm_value v;
@@ -22612,7 +23819,7 @@ index f8ccd7e..8ff77bc 100644
  		stack_push(v);
  		break;
  	}
-@@ -1004,7 +1337,7 @@ static enum opcode execute_instruction(enum opcode opcode)
+@@ -1004,7 +1422,7 @@ static enum opcode execute_instruction(enum opcode opcode)
  		break;
  	}
  	case OBJSWAP: {
@@ -22621,7 +23828,7 @@ index f8ccd7e..8ff77bc 100644
  		union vm_value *b = stack_pop_var();
  		union vm_value *a = stack_pop_var();
  		union vm_value tmp = *a;
-@@ -1025,10 +1358,31 @@ static enum opcode execute_instruction(enum opcode opcode)
+@@ -1025,10 +1443,31 @@ static enum opcode execute_instruction(enum opcode opcode)
  		break;
  	}
  	case CALLMETHOD: {
@@ -22654,7 +23861,7 @@ index f8ccd7e..8ff77bc 100644
  		hll_call(get_argument(0), get_argument(1));
  		break;
  	}
-@@ -1062,6 +1416,12 @@ static enum opcode execute_instruction(enum opcode opcode)
+@@ -1062,6 +1501,12 @@ static enum opcode execute_instruction(enum opcode opcode)
  		break;
  	}
  	case _MSG: {
@@ -22667,7 +23874,7 @@ index f8ccd7e..8ff77bc 100644
  		if (config.echo)
  			echo_message(get_argument(0));
  		if (ain->msgf < 0)
-@@ -1642,7 +2002,7 @@ static enum opcode execute_instruction(enum opcode opcode)
+@@ -1642,7 +2087,7 @@ static enum opcode execute_instruction(enum opcode opcode)
  		break;
  	}
  	case S_MOD: {
@@ -22676,7 +23883,7 @@ index f8ccd7e..8ff77bc 100644
  		union vm_value val = stack_pop();
  		int fmt = stack_pop().i;
  		int dst = heap_alloc_slot(VM_STRING);
-@@ -1711,7 +2071,7 @@ static enum opcode execute_instruction(enum opcode opcode)
+@@ -1711,7 +2156,7 @@ static enum opcode execute_instruction(enum opcode opcode)
  		break;
  	}
  	case SR_ASSIGN: {
@@ -22685,7 +23892,7 @@ index f8ccd7e..8ff77bc 100644
  			stack_pop(); // struct type
  		int rval = stack_pop().i;
  		int lval = stack_pop().i;
-@@ -1759,11 +2119,38 @@ static enum opcode execute_instruction(enum opcode opcode)
+@@ -1759,11 +2204,38 @@ static enum opcode execute_instruction(enum opcode opcode)
  	}
  	case A_REF: {
  		int array = stack_pop().i;
@@ -22724,7 +23931,7 @@ index f8ccd7e..8ff77bc 100644
  	case A_NUMOF: {
  		int rank = stack_pop().i; // rank
  		int array = stack_pop_var()->i;
-@@ -2319,7 +2706,10 @@ static enum opcode execute_instruction(enum opcode opcode)
+@@ -2319,7 +2791,10 @@ static enum opcode execute_instruction(enum opcode opcode)
  	case DG_NEW_FROM_METHOD: {
  		int fun = stack_pop().i;
  		int obj = stack_pop().i;
@@ -22735,7 +23942,7 @@ index f8ccd7e..8ff77bc 100644
  		break;
  	}
  	case DG_CALLBEGIN: { // DG_TYPE
-@@ -2331,6 +2721,16 @@ static enum opcode execute_instruction(enum opcode opcode)
+@@ -2331,6 +2806,18 @@ static enum opcode execute_instruction(enum opcode opcode)
  		// Stack before: [dg_page, arg0, ...]
  		// Stack after:  [arg0, ..., dg_page, 0(dg_index)]
  		int dg_page = stack_peek(dg->nr_arguments).i;
@@ -22743,7 +23950,9 @@ index f8ccd7e..8ff77bc 100644
 +			// Callbacks can unregister themselves or add another callback.
 +			// Iterating the live list skips the entry shifted into their slot,
 +			// e.g. the next message window's OnErasingLayer or motion update.
-+			struct page *snapshot = copy_page(heap_get_delegate_page(dg_page));
++			struct page *live = heap_get_delegate_page(dg_page);
++			delegate_prune(live);
++			struct page *snapshot = copy_page(live);
 +			if (!snapshot)
 +				snapshot = alloc_page(DELEGATE_PAGE, 0, 0);
 +			snapshot->index = -1; // invocation-owned; released by delegate_call
@@ -22752,7 +23961,7 @@ index f8ccd7e..8ff77bc 100644
  		for (int i = 0; i < dg->nr_arguments; i++) {
  			int pos = (stack_ptr - dg->nr_arguments) + i;
  			stack[pos-1] = stack[pos];
-@@ -2340,7 +2740,7 @@ static enum opcode execute_instruction(enum opcode opcode)
+@@ -2340,7 +2827,7 @@ static enum opcode execute_instruction(enum opcode opcode)
  
  		// XXX: If the delegate has a return value, we push a dummy value
  		//      so that DG_CALL can replace it
@@ -22761,7 +23970,7 @@ index f8ccd7e..8ff77bc 100644
  			stack_push(0);
  		}
  		break;
-@@ -2350,10 +2750,19 @@ static enum opcode execute_instruction(enum opcode opcode)
+@@ -2350,10 +2837,19 @@ static enum opcode execute_instruction(enum opcode opcode)
  		break;
  	}
  	case DG_STR_TO_METHOD: {
@@ -22783,7 +23992,7 @@ index f8ccd7e..8ff77bc 100644
  		heap_unref(str);
  		break;
  	}
-@@ -2374,13 +2783,46 @@ static enum opcode execute_instruction(enum opcode opcode)
+@@ -2374,13 +2870,46 @@ static enum opcode execute_instruction(enum opcode opcode)
  
  static void vm_execute(void)
  {
@@ -22830,7 +24039,7 @@ index f8ccd7e..8ff77bc 100644
  		opcode = get_opcode(instr_ptr);
  		opcode = execute_instruction(opcode);
  		instr_ptr += instructions[opcode].ip_inc;
-@@ -2408,6 +2850,7 @@ static void vm_free(void)
+@@ -2408,6 +2937,7 @@ static void vm_free(void)
  		// Dungeons & Dolls saves the game state in destructors of global variables
  		call_global_destructors();
  	}
@@ -22838,7 +24047,7 @@ index f8ccd7e..8ff77bc 100644
  
  	// call library exit routines
  	exit_libraries();
-@@ -2438,6 +2881,8 @@ int vm_execute_ain(struct ain *program)
+@@ -2438,6 +2968,8 @@ int vm_execute_ain(struct ain *program)
  	setjmp(reset_buf);
  
  	// initialize VM state
@@ -22847,7 +24056,7 @@ index f8ccd7e..8ff77bc 100644
  	if (!stack) {
  		stack_size = INITIAL_STACK_SIZE;
  		stack = xmalloc(INITIAL_STACK_SIZE * sizeof(union vm_value));
-@@ -2486,7 +2931,27 @@ int vm_execute_ain(struct ain *program)
+@@ -2486,7 +3018,27 @@ int vm_execute_ain(struct ain *program)
  			init_struct(ain->globals[i].type.struc, heap[0].page->values[i].i);
  	}
  
@@ -22876,7 +24085,7 @@ index f8ccd7e..8ff77bc 100644
  	return stack_pop().i;
  }
  
-@@ -2499,6 +2964,69 @@ void vm_stack_trace(void)
+@@ -2499,6 +3051,69 @@ void vm_stack_trace(void)
  	}
  }
  
@@ -22946,7 +24155,7 @@ index f8ccd7e..8ff77bc 100644
  _Noreturn void _vm_error(const char *fmt, ...)
  {
  	va_list ap;
-@@ -2512,14 +3040,37 @@ _Noreturn void _vm_error(const char *fmt, ...)
+@@ -2512,14 +3127,37 @@ _Noreturn void _vm_error(const char *fmt, ...)
  	va_start(ap, fmt);
  	vsnprintf(msg, 1024, fmt, ap);
  	va_end(ap);

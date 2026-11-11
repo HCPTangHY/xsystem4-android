@@ -1,4 +1,5 @@
 /build/
+/ffmpeg/
 /project/keystore.jks
 /project/app/build/
 /project/app/src/main/assets/
