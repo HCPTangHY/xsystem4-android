@@ -91,6 +91,17 @@ AliceSoft 后期作品（兰斯8 Rance Quest、兰斯9 赫尔曼革命等）的�
   （常用容器 + 常见视频/音频解码器 + swscale），以控制包体积
 - 想要自己构建：先跑一次该脚本，或让 CI 代劳（workflow 里有对应步骤）
 
+### 兰斯10 OP / ED（APEG）
+
+已移植 [TomorrowX6/re-xsystem4 的 APEG 解码实现](https://github.com/TomorrowX6/re-xsystem4/blob/683a119d0ab2b23e0440c6f5e84e2141653e5503/xsystem4/src/movie_plmpeg.c)，
+支持 `IPIC/PPIC/BPIC` 画面、关键帧定位及末帧输出，沿用本分支已有的 `SOND` 音轨、时钟和游戏脚本跳过流程。
+画面经 YUV 着色器写入电影部件纹理，再由 PartsEngine 合成；无需预先转码，也不会替换兰斯8/9的 FFmpeg 后端。
+来源、固定提交和 GPL-2.0-or-later 声明保留在 `apeg_decoder.c`、`apeg_decoder.h`、`apeg_vlc.h` 中。
+
+本机已用真实 `OP1A/OP1B/OP1C/ED2B.apeg` 完成全部 22,678 帧解码顺序、结束及前后定位一致性检查，
+并用项目着色器完成宿主机 GPU 抽帧呈现。**这些不等于 Android 设备上的音画同步、跳过和前后台切换验收**；
+当前没有连接设备，新增播放路径仍需在手机/平板上确认。
+
 ## 构建
 
 只想安装使用的话可以跳过本节。
@@ -206,7 +217,7 @@ Android/data/io.github.kichikuou.xsystem4/files/战国兰斯/
 
 ### 游戏与兼容性
 
-- **兰斯10 APEG 动画没有画面解码**：当前仅读取音轨/时间轴，显示提示后可点击跳过。它与兰斯8/9的 FFmpeg 动画路径不同。
+- **兰斯10 OP/ED 的 Android 实播仍待验收**：APEG 画面解码已加入且完成本机样本验证，设备端音画同步、跳过与切后台行为尚未确认；详见[动画支持](#动画支持)。
 - **兰斯10场景回顾仍待完整验收**：最近设备日志确认按钮进入脚本后因场景数为 0 退出，并非这两次点击未送达。
   普通分组存档与完整 VM 快照保存的内容不同；不能据此断言所有存档都不保存场景回顾。
   产生非空记录后的画面恢复、翻页、语音和退出返回尚未验收，剧情回顾末行/行距也需要屏幕实测。
@@ -227,7 +238,7 @@ Android/data/io.github.kichikuou.xsystem4/files/战国兰斯/
 - 公开 [Actions 运行 37279287268](https://github.com/bailaiOWO/xsystem4-android/actions/runs/37279287268)
   显示 2026-10-05 因账户计费锁定未启动。该历史运行不对应本次源码，也不能证明限制至今未解除；上传后须核实新运行能启动并成功。
 
-### 本次发布准备核对（2026-11-11）
+### 首次上传核对（2026-11-11，`a014a4c`）
 
 - 对照最近 Claude Code 会话及工作区，同步了旧引擎补丁遗漏的 27 个源码文件；libsys4 补丁与当前源码一致，无需改动。
 - 本次实际运行 `node tools/test-rance10-all.mjs`，24 项核心回归通过。测试范围与环境要求见 [tools/README.md](tools/README.md#兰斯10本地回归)。
@@ -240,6 +251,7 @@ Android/data/io.github.kichikuou.xsystem4/files/战国兰斯/
 - [xsystem4](https://github.com/nunuhara/xsystem4) / [libsys4](https://github.com/nunuhara/libsys4)：
   Nunuhara Cabbage 等；引擎源码声明 GPL-2.0-or-later，具体文件以各自声明为准。
 - [xsystem4-android](https://github.com/kichikuou/xsystem4-android)：kichikuou。
+- [re-xsystem4](https://github.com/TomorrowX6/re-xsystem4)：TomorrowX6；本分支 APEG 图片解码及 VLC 表移植来源，保留原始电影后端作者 kichikuou 的声明及 GPL-2.0-or-later 条款。
 - [Anime4K](https://github.com/bloc97/Anime4K)：bloc97 等，MIT。
 - [CuNNy](https://github.com/funnyplanter/CuNNy) / [Magpie](https://github.com/Blinue/Magpie)：
   CuNNy2 fast-NVL 移植保留 **GPL-3.0-or-later** 声明、原始 HLSL 与 COPYING，见 `xsystem4/shaders/cunny/`。

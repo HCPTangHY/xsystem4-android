@@ -1,5 +1,5 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index d213ee3..fcb3f24 100644
+index d213ee3..288a18d 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -6,11 +6,19 @@ set(CMAKE_C_STANDARD 11)
@@ -86,12 +86,13 @@ index d213ee3..fcb3f24 100644
  add_subdirectory(subprojects/libsys4)
  
  add_library(xsystem4 SHARED)
-@@ -43,12 +103,15 @@ configure_file(src/version.h.in version.h)
+@@ -43,12 +103,16 @@ configure_file(src/version.h.in version.h)
  include_directories(${CMAKE_CURRENT_BINARY_DIR})
  
  target_sources(xsystem4 PRIVATE
 +  src/anime4k.c
 +  src/apeg.c
++  src/apeg_decoder.c
    src/audio.c
    src/audio_meta.c
    src/audio_mixer.c
@@ -102,7 +103,7 @@ index d213ee3..fcb3f24 100644
    src/draw.c
    src/effect.c
    src/ffi.c
-@@ -61,9 +124,9 @@ target_sources(xsystem4 PRIVATE
+@@ -61,9 +125,9 @@ target_sources(xsystem4 PRIVATE
    src/id_pool.c
    src/input.c
    src/json.c
@@ -113,7 +114,7 @@ index d213ee3..fcb3f24 100644
    src/resume.c
    src/savedata.c
    src/scene.c
-@@ -72,6 +135,9 @@ target_sources(xsystem4 PRIVATE
+@@ -72,6 +136,9 @@ target_sources(xsystem4 PRIVATE
    src/swf.c
    src/system4.c
    src/text.c
@@ -123,7 +124,7 @@ index d213ee3..fcb3f24 100644
    src/util.c
    src/video.c
    src/vm.c
-@@ -121,6 +187,7 @@ target_sources(xsystem4 PRIVATE
+@@ -121,6 +188,7 @@ target_sources(xsystem4 PRIVATE
    src/hll/AliceLogo5.c
    src/hll/AnteaterADVEngine.c
    src/hll/Array.c
@@ -131,7 +132,7 @@ index d213ee3..fcb3f24 100644
    src/hll/BanMisc.c
    src/hll/Bitarray.c
    src/hll/CalcTable.c
-@@ -170,6 +237,7 @@ target_sources(xsystem4 PRIVATE
+@@ -170,6 +238,7 @@ target_sources(xsystem4 PRIVATE
    src/hll/MamanyoSDemo.c
    src/hll/MarmotModelEngine.c
    src/hll/Math.c
@@ -139,7 +140,7 @@ index d213ee3..fcb3f24 100644
    src/hll/MapLoader.c
    src/hll/MenuMsg.c
    src/hll/MonsterInfo.c
-@@ -227,8 +295,20 @@ target_sources(xsystem4 PRIVATE
+@@ -227,8 +296,20 @@ target_sources(xsystem4 PRIVATE
    )
  
  target_link_libraries(xsystem4 PRIVATE
@@ -199,10 +200,10 @@ index 0000000..4a7a919
 +}
 diff --git a/include/apeg.h b/include/apeg.h
 new file mode 100644
-index 0000000..24ab884
+index 0000000..e381a3c
 --- /dev/null
 +++ b/include/apeg.h
-@@ -0,0 +1,33 @@
+@@ -0,0 +1,36 @@
 +/* AliceSoft APEG movies (Rance 10 Movie\NAME.apeg).
 + *
 + * Container (little endian, chunks of 4-byte tag + u32 payload size):
@@ -214,9 +215,9 @@ index 0000000..24ab884
 + *   IPIC/PPIC/BPIC  video pictures (u32 presentation time in ms + an
 + *         MPEG-1-like bitstream without start codes)
 + *
-+ * The picture bitstream is AliceSoft's own variant and is not decoded yet;
-+ * playback runs the sound track against the movie clock over the part's
-+ * background colour, so scenes that wait for the movie behave as on PC.
++ * The AliceSoft-specific picture stream is decoded using the implementation
++ * ported from TomorrowX6/re-xsystem4. Video presentation follows our existing
++ * audio-backed movie clock and is composited through the PartsEngine texture.
 + */
 +#ifndef SYSTEM4_APEG_H
 +#define SYSTEM4_APEG_H
@@ -224,6 +225,7 @@ index 0000000..24ab884
 +#include <stdbool.h>
 +
 +struct apeg_player;
++struct texture;
 +
 +struct apeg_player *apeg_open(const char *game_path, int mixer_no);
 +void apeg_close(struct apeg_player *p);
@@ -234,8 +236,505 @@ index 0000000..24ab884
 +void apeg_seek(struct apeg_player *p, int msec);
 +int apeg_position(struct apeg_player *p);
 +bool apeg_is_end(struct apeg_player *p);
++// Updates the target only when a new frame is due; the target remains caller-owned.
++bool apeg_draw(struct apeg_player *p, struct texture *target);
 +
 +#endif /* SYSTEM4_APEG_H */
+diff --git a/include/apeg_decoder.h b/include/apeg_decoder.h
+new file mode 100644
+index 0000000..804c1f3
+--- /dev/null
++++ b/include/apeg_decoder.h
+@@ -0,0 +1,56 @@
++/* Copyright (C) 2023 kichikuou <KichikuouChrome@gmail.com>
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://gnu.org/licenses/>.
++ */
++
++/* APEG decoder ported from TomorrowX6/re-xsystem4, commit
++ * 683a119d0ab2b23e0440c6f5e84e2141653e5503 (src/movie_plmpeg.c
++ * and include/apeg_vlc.h). The APEG picture algorithms and VLC tables
++ * are retained; container ownership and scheduling are independent.
++ * https://github.com/TomorrowX6/re-xsystem4
++ */
++
++#ifndef XSYSTEM4_APEG_DECODER_H
++#define XSYSTEM4_APEG_DECODER_H
++
++#include <stdbool.h>
++#include <stddef.h>
++#include <stdio.h>
++#include "pl_mpeg.h"
++
++struct apeg_decoder;
++
++/* Takes ownership of fp, including on failure. Requires a seekable file. */
++struct apeg_decoder *apeg_decoder_open(FILE *fp);
++void apeg_decoder_close(struct apeg_decoder *decoder);
++int apeg_decoder_width(struct apeg_decoder *decoder);
++int apeg_decoder_height(struct apeg_decoder *decoder);
++int apeg_decoder_duration(struct apeg_decoder *decoder);
++
++/* Caller frees the returned SOND payload. Does not change the video cursor.
++ * No sound/read failure returns NULL and writes zero to size. */
++unsigned char *apeg_decoder_read_sound(struct apeg_decoder *decoder, size_t *size);
++
++/* Clamps msec to the movie duration, seeks to the preceding keyframe and
++ * decodes toward the target. The first frame afterwards is immediately due. */
++bool apeg_decoder_seek(struct apeg_decoder *decoder, int msec);
++
++/* Returns the frame to present after the donor's 35 ms catch-up window,
++ * or NULL if none is due or at end/read failure. Old B pictures are skipped;
++ * a future frame is retained internally. Only one frame needs uploading. */
++/* The frame and its Y/Cb/Cr planes are borrowed and remain valid only until
++ * the next frame/seek/close call. No frame pixels are copied by this API. */
++plm_frame_t *apeg_decoder_frame(struct apeg_decoder *decoder, int msec);
++
++#endif /* XSYSTEM4_APEG_DECODER_H */
+diff --git a/include/apeg_vlc.h b/include/apeg_vlc.h
+new file mode 100644
+index 0000000..4bc0ef0
+--- /dev/null
++++ b/include/apeg_vlc.h
+@@ -0,0 +1,427 @@
++/* Copyright (C) 2023 kichikuou <KichikuouChrome@gmail.com>
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://gnu.org/licenses/>.
++ */
++
++/* APEG decoder ported from TomorrowX6/re-xsystem4, commit
++ * 683a119d0ab2b23e0440c6f5e84e2141653e5503 (src/movie_plmpeg.c
++ * and include/apeg_vlc.h). The APEG picture algorithms and VLC tables
++ * are retained; container ownership and scheduling are independent.
++ * https://github.com/TomorrowX6/re-xsystem4
++ */
++
++#ifndef XSYSTEM4_APEG_VLC_H
++#define XSYSTEM4_APEG_VLC_H
++
++static const plm_vlc_t APEG_VLC_DCT_FIRST[] = {
++	{   0,     -1}, {   2,      0},
++	{   4,      0}, {   6,      0},
++	{   0,    257}, {   8,      0},
++	{  10,      0}, {  12,      0},
++	{   0,      2}, {   0,    513},
++	{  14,      0}, {  16,      0},
++	{  18,      0}, {  20,      0},
++	{   0,      3}, {   0,    769},
++	{   0,   1025}, {  22,      0},
++	{  24,      0}, {  26,      0},
++	{  28,      0}, {  30,      0},
++	{   0,     -2}, {   0,    258},
++	{   0,   1281}, {   0,   1537},
++	{   0,   1793}, {  32,      0},
++	{  34,      0}, {  36,      0},
++	{  38,      0}, {  40,      0},
++	{   0,      4}, {   0,    514},
++	{   0,   2049}, {   0,   2305},
++	{  42,      0}, {  44,      0},
++	{  46,      0}, {  48,      0},
++	{  50,      0}, {  52,      0},
++	{   0,      5}, {   0,      6},
++	{   0,    259}, {   0,    770},
++	{   0,   2561}, {   0,   2817},
++	{   0,   3073}, {   0,   3329},
++	{  54,      0}, {  56,      0},
++	{  58,      0}, {  60,      0},
++	{  62,      0}, {  64,      0},
++	{  66,      0}, {  68,      0},
++	{  70,      0}, {  72,      0},
++	{  74,      0}, {  76,      0},
++	{   0,      7}, {   0,    260},
++	{   0,    515}, {   0,   1026},
++	{   0,   1282}, {   0,   3585},
++	{   0,   3841}, {   0,   4097},
++	{  78,      0}, {  80,      0},
++	{  82,      0}, {  84,      0},
++	{  86,      0}, {  88,      0},
++	{  90,      0}, {  92,      0},
++	{  94,      0}, {  96,      0},
++	{  98,      0}, { 100,      0},
++	{ 102,      0}, { 104,      0},
++	{ 106,      0}, { 108,      0},
++	{ 110,      0}, { 112,      0},
++	{ 114,      0}, { 116,      0},
++	{ 118,      0}, { 120,      0},
++	{ 122,      0}, { 124,      0},
++	{   0,      8}, {   0,      9},
++	{   0,     10}, {   0,     11},
++	{   0,    261}, {   0,    516},
++	{   0,    771}, {   0,   1027},
++	{   0,   1538}, {   0,   1794},
++	{   0,   2050}, {   0,   4353},
++	{   0,   4609}, {   0,   4865},
++	{   0,   5121}, {   0,   5377},
++	{ 126,      0}, { 128,      0},
++	{ 130,      0}, { 132,      0},
++	{ 134,      0}, { 136,      0},
++	{ 138,      0}, { 140,      0},
++	{ 142,      0}, { 144,      0},
++	{ 146,      0}, { 148,      0},
++	{ 150,      0}, { 152,      0},
++	{ 154,      0}, { 156,      0},
++	{   0,     12}, {   0,     13},
++	{   0,     14}, {   0,     15},
++	{   0,    262}, {   0,    263},
++	{   0,    517}, {   0,    772},
++	{   0,   1283}, {   0,   2306},
++	{   0,   2562}, {   0,   5633},
++	{   0,   5889}, {   0,   6145},
++	{   0,   6401}, {   0,   6657},
++	{ 158,      0}, { 160,      0},
++	{ 162,      0}, { 164,      0},
++	{ 166,      0}, { 168,      0},
++	{ 170,      0}, { 172,      0},
++	{ 174,      0}, { 176,      0},
++	{ 178,      0}, { 180,      0},
++	{ 182,      0}, { 184,      0},
++	{ 186,      0}, { 188,      0},
++	{   0,     16}, {   0,     17},
++	{   0,     18}, {   0,     19},
++	{   0,     20}, {   0,     21},
++	{   0,     22}, {   0,     23},
++	{   0,     24}, {   0,     25},
++	{   0,     26}, {   0,     27},
++	{   0,     28}, {   0,     29},
++	{   0,     30}, {   0,     31},
++	{ 190,      0}, { 192,      0},
++	{ 194,      0}, { 196,      0},
++	{ 198,      0}, { 200,      0},
++	{ 202,      0}, { 204,      0},
++	{ 206,      0}, { 208,      0},
++	{ 210,      0}, { 212,      0},
++	{ 214,      0}, { 216,      0},
++	{ 218,      0}, { 220,      0},
++	{   0,     32}, {   0,     33},
++	{   0,     34}, {   0,     35},
++	{   0,     36}, {   0,     37},
++	{   0,     38}, {   0,     39},
++	{   0,     40}, {   0,    264},
++	{   0,    265}, {   0,    266},
++	{   0,    267}, {   0,    268},
++	{   0,    269}, {   0,    270},
++	{   0,    271}, {   0,    272},
++	{   0,    273}, {   0,    274},
++	{   0,   1539}, {   0,   2818},
++	{   0,   3074}, {   0,   3330},
++	{   0,   3586}, {   0,   3842},
++	{   0,   4098}, {   0,   6913},
++	{   0,   7169}, {   0,   7425},
++	{   0,   7681}, {   0,   7937},
++};
++
++static const plm_vlc_t APEG_VLC_DCT_NEXT[] = {
++	{   2,      0}, {   4,      0},
++	{   0,     -3}, {   0,     -1},
++	{   6,      0}, {   8,      0},
++	{   0,    257}, {  10,      0},
++	{  12,      0}, {  14,      0},
++	{   0,      2}, {   0,    513},
++	{  16,      0}, {  18,      0},
++	{  20,      0}, {  22,      0},
++	{   0,      3}, {   0,    769},
++	{   0,   1025}, {  24,      0},
++	{  26,      0}, {  28,      0},
++	{  30,      0}, {  32,      0},
++	{   0,     -2}, {   0,    258},
++	{   0,   1281}, {   0,   1537},
++	{   0,   1793}, {  34,      0},
++	{  36,      0}, {  38,      0},
++	{  40,      0}, {  42,      0},
++	{   0,      4}, {   0,    514},
++	{   0,   2049}, {   0,   2305},
++	{  44,      0}, {  46,      0},
++	{  48,      0}, {  50,      0},
++	{  52,      0}, {  54,      0},
++	{   0,      5}, {   0,      6},
++	{   0,    259}, {   0,    770},
++	{   0,   2561}, {   0,   2817},
++	{   0,   3073}, {   0,   3329},
++	{  56,      0}, {  58,      0},
++	{  60,      0}, {  62,      0},
++	{  64,      0}, {  66,      0},
++	{  68,      0}, {  70,      0},
++	{  72,      0}, {  74,      0},
++	{  76,      0}, {  78,      0},
++	{   0,      7}, {   0,    260},
++	{   0,    515}, {   0,   1026},
++	{   0,   1282}, {   0,   3585},
++	{   0,   3841}, {   0,   4097},
++	{  80,      0}, {  82,      0},
++	{  84,      0}, {  86,      0},
++	{  88,      0}, {  90,      0},
++	{  92,      0}, {  94,      0},
++	{  96,      0}, {  98,      0},
++	{ 100,      0}, { 102,      0},
++	{ 104,      0}, { 106,      0},
++	{ 108,      0}, { 110,      0},
++	{ 112,      0}, { 114,      0},
++	{ 116,      0}, { 118,      0},
++	{ 120,      0}, { 122,      0},
++	{ 124,      0}, { 126,      0},
++	{   0,      8}, {   0,      9},
++	{   0,     10}, {   0,     11},
++	{   0,    261}, {   0,    516},
++	{   0,    771}, {   0,   1027},
++	{   0,   1538}, {   0,   1794},
++	{   0,   2050}, {   0,   4353},
++	{   0,   4609}, {   0,   4865},
++	{   0,   5121}, {   0,   5377},
++	{ 128,      0}, { 130,      0},
++	{ 132,      0}, { 134,      0},
++	{ 136,      0}, { 138,      0},
++	{ 140,      0}, { 142,      0},
++	{ 144,      0}, { 146,      0},
++	{ 148,      0}, { 150,      0},
++	{ 152,      0}, { 154,      0},
++	{ 156,      0}, { 158,      0},
++	{   0,     12}, {   0,     13},
++	{   0,     14}, {   0,     15},
++	{   0,    262}, {   0,    263},
++	{   0,    517}, {   0,    772},
++	{   0,   1283}, {   0,   2306},
++	{   0,   2562}, {   0,   5633},
++	{   0,   5889}, {   0,   6145},
++	{   0,   6401}, {   0,   6657},
++	{ 160,      0}, { 162,      0},
++	{ 164,      0}, { 166,      0},
++	{ 168,      0}, { 170,      0},
++	{ 172,      0}, { 174,      0},
++	{ 176,      0}, { 178,      0},
++	{ 180,      0}, { 182,      0},
++	{ 184,      0}, { 186,      0},
++	{ 188,      0}, { 190,      0},
++	{   0,     16}, {   0,     17},
++	{   0,     18}, {   0,     19},
++	{   0,     20}, {   0,     21},
++	{   0,     22}, {   0,     23},
++	{   0,     24}, {   0,     25},
++	{   0,     26}, {   0,     27},
++	{   0,     28}, {   0,     29},
++	{   0,     30}, {   0,     31},
++	{ 192,      0}, { 194,      0},
++	{ 196,      0}, { 198,      0},
++	{ 200,      0}, { 202,      0},
++	{ 204,      0}, { 206,      0},
++	{ 208,      0}, { 210,      0},
++	{ 212,      0}, { 214,      0},
++	{ 216,      0}, { 218,      0},
++	{ 220,      0}, { 222,      0},
++	{   0,     32}, {   0,     33},
++	{   0,     34}, {   0,     35},
++	{   0,     36}, {   0,     37},
++	{   0,     38}, {   0,     39},
++	{   0,     40}, {   0,    264},
++	{   0,    265}, {   0,    266},
++	{   0,    267}, {   0,    268},
++	{   0,    269}, {   0,    270},
++	{   0,    271}, {   0,    272},
++	{   0,    273}, {   0,    274},
++	{   0,   1539}, {   0,   2818},
++	{   0,   3074}, {   0,   3330},
++	{   0,   3586}, {   0,   3842},
++	{   0,   4098}, {   0,   6913},
++	{   0,   7169}, {   0,   7425},
++	{   0,   7681}, {   0,   7937},
++};
++
++static const plm_vlc_t APEG_VLC_SKIP[] = {
++	{   0,      0}, {   2,      0},
++	{   4,      0}, {   6,      0},
++	{   0,      1}, {   0,      2},
++	{   8,      0}, {  10,      0},
++	{   0,      3}, {   0,      4},
++	{  12,      0}, {  14,      0},
++	{   0,      5}, {   0,      6},
++	{  16,      0}, {  18,      0},
++	{  20,      0}, {  22,      0},
++	{  24,      0}, {  26,      0},
++	{   0,      7}, {   0,      8},
++	{  28,      0}, {  30,      0},
++	{  32,      0}, {  34,      0},
++	{  36,      0}, {  38,      0},
++	{   0,      9}, {   0,     10},
++	{   0,     11}, {   0,     12},
++	{   0,     13}, {   0,     14},
++	{  40,      0}, {  42,      0},
++	{  44,      0}, {  46,      0},
++	{  48,      0}, {   0,     -1},
++	{  50,      0}, {  52,      0},
++	{  54,      0}, {  56,      0},
++	{  58,      0}, {  60,      0},
++	{  62,      0}, {  64,      0},
++	{  66,      0}, {  68,      0},
++	{   0,     15}, {   0,     16},
++	{   0,     17}, {   0,     18},
++	{   0,     19}, {   0,     20},
++	{   0,     21}, {   0,     22},
++	{   0,     23}, {   0,     24},
++	{   0,     25}, {   0,     26},
++	{   0,     27}, {   0,     28},
++	{   0,     29}, {   0,     30},
++	{   0,     31}, {   0,     32},
++	{   0,     33}, {   0,     34},
++};
++
++static const plm_vlc_t APEG_VLC_MB_TYPE_P[] = {
++	{   0,     10}, {   2,      0},
++	{   0,      2}, {   4,      0},
++	{   0,      8}, {   6,      0},
++	{   8,      0}, {  10,      0},
++	{   0,      1}, {   0,     26},
++	{   0,     18}, {  12,      0},
++	{   0,     17}, {   0,     24},
++};
++
++static const plm_vlc_t APEG_VLC_MB_TYPE_B[] = {
++	{   2,      0}, {   4,      0},
++	{   0,     14}, {   0,     12},
++	{   6,      0}, {   8,      0},
++	{   0,      6}, {   0,      4},
++	{  10,      0}, {  12,      0},
++	{   0,     10}, {   0,      8},
++	{  14,      0}, {  16,      0},
++	{   0,      1}, {   0,     30},
++	{  18,      0}, {  20,      0},
++	{   0,     28}, {   0,     22},
++	{  22,      0}, {  24,      0},
++	{   0,     20}, {   0,     26},
++	{   0,     24}, {   0,     17},
++};
++
++static const plm_vlc_t APEG_VLC_CBP[] = {
++	{   2,      0}, {   4,      0},
++	{   6,      0}, {   8,      0},
++	{  10,      0}, {  12,      0},
++	{   0,     60}, {  14,      0},
++	{  16,      0}, {  18,      0},
++	{  20,      0}, {  22,      0},
++	{  24,      0}, {  26,      0},
++	{   0,      4}, {   0,      8},
++	{   0,     16}, {   0,     32},
++	{  28,      0}, {  30,      0},
++	{  32,      0}, {  34,      0},
++	{  36,      0}, {  38,      0},
++	{  40,      0}, {  42,      0},
++	{  44,      0}, {  46,      0},
++	{   0,      1}, {   0,      2},
++	{   0,     12}, {   0,     20},
++	{   0,     28}, {   0,     40},
++	{   0,     44}, {   0,     48},
++	{   0,     52}, {   0,     56},
++	{   0,     61}, {   0,     62},
++	{  48,      0}, {  50,      0},
++	{  52,      0}, {  54,      0},
++	{  56,      0}, {  58,      0},
++	{  60,      0}, {  62,      0},
++	{   0,      3}, {   0,     24},
++	{   0,     36}, {   0,     63},
++	{  64,      0}, {  66,      0},
++	{  68,      0}, {  70,      0},
++	{  72,      0}, {  74,      0},
++	{  76,      0}, {  78,      0},
++	{  80,      0}, {  82,      0},
++	{  84,      0}, {  86,      0},
++	{   0,      5}, {   0,      6},
++	{   0,      9}, {   0,     10},
++	{   0,     17}, {   0,     18},
++	{   0,     33}, {   0,     34},
++	{  88,      0}, {  90,      0},
++	{  92,      0}, {  94,      0},
++	{  96,      0}, {  98,      0},
++	{ 100,      0}, { 102,      0},
++	{ 104,      0}, { 106,      0},
++	{ 108,      0}, { 110,      0},
++	{ 112,      0}, { 114,      0},
++	{ 116,      0}, { 118,      0},
++	{   0,      7}, {   0,     11},
++	{   0,     13}, {   0,     14},
++	{   0,     15}, {   0,     19},
++	{   0,     21}, {   0,     22},
++	{   0,     23}, {   0,     25},
++	{   0,     26}, {   0,     29},
++	{   0,     30}, {   0,     35},
++	{   0,     37}, {   0,     38},
++	{   0,     41}, {   0,     42},
++	{   0,     43}, {   0,     45},
++	{   0,     46}, {   0,     49},
++	{   0,     50}, {   0,     51},
++	{   0,     53}, {   0,     54},
++	{   0,     57}, {   0,     58},
++	{ 120,      0}, { 122,      0},
++	{ 124,      0}, {   0,     -1},
++	{   0,     27}, {   0,     31},
++	{   0,     39}, {   0,     47},
++	{   0,     55}, {   0,     59},
++};
++
++static const plm_vlc_t APEG_VLC_MOTION[] = {
++	{   0,      0}, {   2,      0},
++	{   0,      1}, {   4,      0},
++	{   0,      2}, {   6,      0},
++	{   0,      3}, {   8,      0},
++	{  10,      0}, {  12,      0},
++	{   0,      4}, {  14,      0},
++	{  16,      0}, {  18,      0},
++	{   0,      5}, {   0,      6},
++	{   0,      7}, {  20,      0},
++	{  22,      0}, {  24,      0},
++	{   0,      8}, {   0,      9},
++	{   0,     10}, {  26,      0},
++	{  28,      0}, {  30,      0},
++	{   0,     11}, {   0,     12},
++	{   0,     13}, {   0,     14},
++	{   0,     15}, {   0,     16},
++};
++
++static const plm_vlc_t APEG_VLC_DC_LUMA[] = {
++	{   2,      0}, {   4,      0},
++	{   0,      1}, {   0,      2},
++	{   6,      0}, {   8,      0},
++	{   0,      0}, {   0,      3},
++	{   0,      4}, {  10,      0},
++	{   0,      5}, {  12,      0},
++	{   0,      6}, {  14,      0},
++	{   0,      7}, {   0,      8},
++};
++
++static const plm_vlc_t APEG_VLC_DC_CHROMA[] = {
++	{   2,      0}, {   4,      0},
++	{   0,      0}, {   0,      1},
++	{   0,      2}, {   6,      0},
++	{   0,      3}, {   8,      0},
++	{   0,      4}, {  10,      0},
++	{   0,      5}, {  12,      0},
++	{   0,      6}, {  14,      0},
++	{   0,      7}, {   0,      8},
++};
++
++#endif /* XSYSTEM4_APEG_VLC_H */
 diff --git a/include/asset_manager.h b/include/asset_manager.h
 index d182f41..f82d8e3 100644
 --- a/include/asset_manager.h
@@ -4770,11 +5269,16 @@ index 0000000..22aafb6
 +#endif
 diff --git a/src/apeg.c b/src/apeg.c
 new file mode 100644
-index 0000000..3c8d8d7
+index 0000000..8c94e70
 --- /dev/null
 +++ b/src/apeg.c
-@@ -0,0 +1,172 @@
-+/* AliceSoft APEG movie container (see include/apeg.h). */
+@@ -0,0 +1,235 @@
++/* AliceSoft APEG playback (see include/apeg.h).
++ * Video decoding and YUV presentation adapted from TomorrowX6/re-xsystem4,
++ * commit 683a119d0ab2b23e0440c6f5e84e2141653e5503, src/movie_plmpeg.c.
++ * Original movie backend: Copyright (C) 2023 kichikuou.
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ */
 +
 +#include <errno.h>
 +#include <stdint.h>
@@ -4786,19 +5290,23 @@ index 0000000..3c8d8d7
 +#include "system4.h"
 +#include "system4/archive.h"
 +#include "system4/file.h"
-+#include "system4/little_endian.h"
 +
 +#include "apeg.h"
++#include "apeg_decoder.h"
++#include "gfx/gfx.h"
 +#include "asset_manager.h"
 +#include "mixer.h"
 +#include "xsystem4.h"
 +
 +struct apeg_player {
++	struct apeg_decoder *decoder;
 +	int width, height;
-+	int duration;           // ms, from the APEG header
-+	struct channel *sound;  // SOND track, NULL when absent or unreadable
++	int duration;
++	struct channel *sound;
++	GLuint textures[3]; // Y, Cb, Cr; storage is allocated once per movie.
 +	bool started;
-+	int last_pos;           // movie clock (ms) at last_tick
++	bool seek_pending;
++	int last_pos;
 +	uint32_t last_tick;
 +};
 +
@@ -4812,9 +5320,25 @@ index 0000000..3c8d8d7
 +static struct archive_ops apeg_sound_ops = { .free_data = apeg_free_sound_data };
 +static struct archive apeg_sound_archive = { .ops = &apeg_sound_ops };
 +
-+static bool read_at(FILE *fp, long off, void *buf, size_t n)
++static Shader apeg_shader;
++
++static void prepare_apeg_shader(struct gfx_render_job *job, void *data)
 +{
-+	return fseek(fp, off, SEEK_SET) == 0 && fread(buf, 1, n, fp) == n;
++	struct apeg_player *p = data;
++	for (unsigned i = 0; i < 3; i++) {
++		glActiveTexture(GL_TEXTURE0 + i);
++		glBindTexture(GL_TEXTURE_2D, p->textures[i]);
++	}
++}
++
++static void load_apeg_shader(void)
++{
++	gfx_load_shader(&apeg_shader, "shaders/render.v.glsl", "shaders/movie.f.glsl");
++	glUseProgram(apeg_shader.program);
++	glUniform1i(glGetUniformLocation(apeg_shader.program, "texture_y"), 0);
++	glUniform1i(glGetUniformLocation(apeg_shader.program, "texture_cb"), 1);
++	glUniform1i(glGetUniformLocation(apeg_shader.program, "texture_cr"), 2);
++	apeg_shader.prepare = prepare_apeg_shader;
 +}
 +
 +struct apeg_player *apeg_open(const char *game_path, int mixer_no)
@@ -4826,61 +5350,39 @@ index 0000000..3c8d8d7
 +		free(path);
 +		return NULL;
 +	}
-+
-+	uint8_t hdr[0x98];
-+	if (!read_at(fp, 0, hdr, sizeof(hdr)) || memcmp(hdr, "APEG", 4)) {
-+		WARNING("%s: not an APEG movie", display_utf0(path));
-+		fclose(fp);
++	struct apeg_decoder *decoder = apeg_decoder_open(fp);
++	if (!decoder) {
++		WARNING("%s: invalid APEG movie", display_utf0(path));
 +		free(path);
 +		return NULL;
 +	}
 +	struct apeg_player *p = xcalloc(1, sizeof(*p));
-+	p->width = LittleEndian_getW(hdr, 12);
-+	p->height = LittleEndian_getW(hdr, 14);
-+	p->duration = LittleEndian_getDW(hdr, 0x90);
-+	if (p->width <= 0 || p->width > 4096 || p->height <= 0 || p->height > 4096) {
-+		p->width = config.view_width;
-+		p->height = config.view_height;
-+	}
++	p->decoder = decoder;
++	p->width = apeg_decoder_width(decoder);
++	p->height = apeg_decoder_height(decoder);
++	p->duration = apeg_decoder_duration(decoder);
 +
-+	// The chunks before the first picture are APEG, TMNL and SOND.
-+	long off = 0;
-+	for (int i = 0; i < 8; i++) {
-+		uint8_t ch[8];
-+		if (!read_at(fp, off, ch, 8))
-+			break;
-+		uint32_t size = LittleEndian_getDW(ch, 4);
-+		if (!memcmp(ch, "SOND", 4)) {
-+			uint8_t *buf = size ? malloc(size) : NULL;
-+			if (buf && fread(buf, 1, size, fp) == size) {
-+				struct archive_data *d = xcalloc(1, sizeof(*d));
-+				d->data = buf;
-+				d->size = size;
-+				d->name = xstrdup(game_path);
-+				d->no = -1;
-+				d->archive = &apeg_sound_archive;
-+				p->sound = channel_open_archive_data(d, ASSET_SOUND, -1);
-+				if (p->sound) {
-+					channel_set_loop_count(p->sound, 1);
-+					channel_set_group(p->sound, mixer_no);
-+				}
-+			} else {
-+				free(buf);
-+			}
-+			break;
++	size_t size;
++	uint8_t *sound = apeg_decoder_read_sound(decoder, &size);
++	if (sound) {
++		struct archive_data *d = xcalloc(1, sizeof(*d));
++		d->data = sound;
++		d->size = size;
++		d->name = xstrdup(game_path);
++		d->no = -1;
++		d->archive = &apeg_sound_archive;
++		p->sound = channel_open_archive_data(d, ASSET_SOUND, -1);
++		if (p->sound) {
++			channel_set_loop_count(p->sound, 1);
++			channel_set_group(p->sound, mixer_no);
 +		}
-+		if (!memcmp(ch, "IPIC", 4) || !memcmp(ch, "PPIC", 4) || !memcmp(ch, "BPIC", 4))
-+			break;
-+		off += 8 + (long)size;
 +	}
-+	fclose(fp);
-+
 +	if (!p->sound)
 +		WARNING("%s: no playable sound track", display_utf0(path));
-+	if (p->duration <= 0)
-+		p->duration = p->sound ? channel_get_time_length(p->sound) : 0;
-+	NOTICE("APEG %s: %dx%d, %d ms%s", display_utf0(path), p->width, p->height,
-+	       p->duration, p->sound ? "" : " (silent)");
++	if (p->duration <= 0 && p->sound)
++		p->duration = channel_get_time_length(p->sound);
++	NOTICE("APEG %s: %dx%d, %d ms, video%s", display_utf0(path), p->width, p->height,
++	       p->duration, p->sound ? " + audio" : " (silent)");
 +	free(path);
 +	return p;
 +}
@@ -4891,6 +5393,9 @@ index 0000000..3c8d8d7
 +		return;
 +	if (p->sound)
 +		channel_close(p->sound);
++	if (p->textures[0])
++		glDeleteTextures(3, p->textures);
++	apeg_decoder_close(p->decoder);
 +	free(p);
 +}
 +
@@ -4922,6 +5427,12 @@ index 0000000..3c8d8d7
 +		msec = 0;
 +	if (msec > p->duration)
 +		msec = p->duration;
++	p->seek_pending = false;
++	if (!apeg_decoder_seek(p->decoder, msec)) {
++		WARNING("APEG seek failed at %d ms", msec);
++		return;
++	}
++	p->seek_pending = true;
 +	p->last_pos = msec;
 +	p->last_tick = SDL_GetTicks();
 +	if (p->sound)
@@ -4931,13 +5442,10 @@ index 0000000..3c8d8d7
 +bool apeg_play(struct apeg_player *p, int msec)
 +{
 +	apeg_seek(p, msec);
++	if (!p->seek_pending)
++		return false;
 +	p->started = true;
-+#ifdef __ANDROID__
-+	// The picture stream is AliceSoft's own codec; tell the player why the
-+	// screen stays dark while the opening's sound track plays.
-+	SDL_AndroidShowToast("动画画面暂不支持，正在播放原声，点击即可跳过", 1, -1, 0, 0);
-+#endif
-+	if (p->sound && msec < channel_get_time_length(p->sound))
++	if (p->sound && p->last_pos < channel_get_time_length(p->sound))
 +		channel_play(p->sound);
 +	return true;
 +}
@@ -4945,6 +5453,741 @@ index 0000000..3c8d8d7
 +bool apeg_is_end(struct apeg_player *p)
 +{
 +	return p->started && apeg_position(p) >= p->duration;
++}
++
++/* Upload only a new presentation frame. The decoder keeps its reference
++ * pictures and the GPU keeps its three plane allocations between frames. */
++bool apeg_draw(struct apeg_player *p, struct texture *target)
++{
++	if (!p || (!p->started && !p->seek_pending) || !target || !target->handle)
++		return false;
++	plm_frame_t *frame = apeg_decoder_frame(p->decoder, apeg_position(p));
++	if (!frame)
++		return false;
++	p->seek_pending = false;
++	if (!apeg_shader.program)
++		load_apeg_shader();
++	bool allocate = !p->textures[0];
++	if (allocate)
++		glGenTextures(3, p->textures);
++	plm_plane_t *planes[] = { &frame->y, &frame->cb, &frame->cr };
++	for (unsigned i = 0; i < 3; i++) {
++		glActiveTexture(GL_TEXTURE0 + i);
++		glBindTexture(GL_TEXTURE_2D, p->textures[i]);
++		plm_plane_t *plane = planes[i];
++		if (allocate) {
++			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
++			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
++			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
++			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
++			glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, plane->width, plane->height, 0,
++			             GL_RED, GL_UNSIGNED_BYTE, plane->data);
++		} else {
++			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, plane->width, plane->height,
++			                GL_RED, GL_UNSIGNED_BYTE, plane->data);
++		}
++	}
++
++	GLuint fbo = gfx_set_framebuffer(GL_DRAW_FRAMEBUFFER, target, 0, 0, target->w, target->h);
++	// Plane storage is macroblock-padded. Let the viewport crop that padding
++	// instead of stretching it into the visible picture.
++	float w = (float)target->w * frame->y.width / p->width;
++	float h = (float)target->h * frame->y.height / p->height;
++	mat4 world_transform = WORLD_TRANSFORM(w, h, 0, 0);
++	mat4 view_transform = WV_TRANSFORM(target->w, target->h);
++	struct gfx_render_job job = {
++		.shader = &apeg_shader,
++		.shape = GFX_RECTANGLE,
++		.world_transform = world_transform[0],
++		.view_transform = view_transform[0],
++		.data = p,
++	};
++	glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ZERO);
++	gfx_render(&job);
++	glActiveTexture(GL_TEXTURE0);
++	gfx_reset_framebuffer(GL_DRAW_FRAMEBUFFER, fbo);
++	return true;
++}
+diff --git a/src/apeg_decoder.c b/src/apeg_decoder.c
+new file mode 100644
+index 0000000..7a62e2c
+--- /dev/null
++++ b/src/apeg_decoder.c
+@@ -0,0 +1,675 @@
++/* Copyright (C) 2023 kichikuou <KichikuouChrome@gmail.com>
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://gnu.org/licenses/>.
++ */
++
++/* APEG decoder ported from TomorrowX6/re-xsystem4, commit
++ * 683a119d0ab2b23e0440c6f5e84e2141653e5503 (src/movie_plmpeg.c
++ * and include/apeg_vlc.h). The APEG picture algorithms and VLC tables
++ * are retained; container ownership and scheduling are independent.
++ * https://github.com/TomorrowX6/re-xsystem4
++ */
++
++#include <limits.h>
++#include <stdint.h>
++#include <stdlib.h>
++#include <string.h>
++
++#include "system4.h"
++#include "system4/little_endian.h"
++
++/* The sole pl_mpeg implementation; ordinary MPEG playback uses its public API. */
++#define PL_MPEG_IMPLEMENTATION
++#include "apeg_decoder.h"
++#include "apeg_vlc.h"
++
++struct apeg_keyframe {
++	uint32_t time_ms;
++	uint32_t file_offset;
++};
++
++struct apeg_decoder {
++	FILE *fp;
++	long file_size;
++	long first_chunk_offset;
++	long sound_offset;
++	size_t sound_size;
++	int width;
++	int height;
++	int end_time_ms;
++	uint32_t keyframe_count;
++	struct apeg_keyframe *keyframes;
++	plm_buffer_t *bitbuf;
++	plm_video_t *vdec;
++	plm_frame_t *pending_frame;
++	bool has_ref;
++	bool has_both_refs;
++	bool eof;
++	bool seek_frame_due;
++};
++
++static void apeg_decode_block(plm_video_t *self, int block)
++{
++	int n = 0;
++	uint8_t *quant_matrix;
++	int quantizer_scale = self->quantizer_scale;
++
++	if (self->macroblock_intra) {
++		int predictor;
++		int plane_index = (block > 3) ? (block - 3) : 0;
++		predictor = self->dc_predictor[plane_index];
++
++		int size = plm_buffer_read_vlc(self->buffer,
++			block < 4 ? APEG_VLC_DC_LUMA : APEG_VLC_DC_CHROMA);
++		if (size < 0)
++			return;
++
++		if (size > 0) {
++			int val = plm_buffer_read(self->buffer, size);
++			if ((val & (1 << (size - 1))) == 0) {
++				val -= (1 << size) - 1;
++			}
++			predictor += val;
++			self->dc_predictor[plane_index] = predictor;
++		}
++		self->block_data[0] = predictor << (3 + 5);
++		quant_matrix = self->intra_quant_matrix;
++		n = 1;
++	} else {
++		quant_matrix = self->non_intra_quant_matrix;
++	}
++
++	int coeff = 0;
++	while (TRUE) {
++		int run_coeff = plm_buffer_read_vlc(self->buffer,
++			n == 0 ? APEG_VLC_DCT_FIRST : APEG_VLC_DCT_NEXT);
++		if (run_coeff == -3) {
++			break;
++		}
++		if (run_coeff == -4) {
++			return;
++		}
++
++		int run;
++		if (run_coeff == -2) {
++			run = plm_buffer_read(self->buffer, 6);
++			coeff = plm_buffer_read(self->buffer, 8);
++			if (coeff == 0) {
++				coeff = plm_buffer_read(self->buffer, 8);
++			} else if (coeff == 128) {
++				coeff = plm_buffer_read(self->buffer, 8) - 256;
++			} else if (coeff > 128) {
++				coeff -= 256;
++			}
++		} else {
++			if (run_coeff == -1) {
++				run = 0;
++				coeff = 1;
++			} else {
++				run = run_coeff >> 8;
++				coeff = run_coeff & 0xff;
++			}
++			if (plm_buffer_read(self->buffer, 1)) {
++				coeff = -coeff;
++			}
++		}
++
++		n += run;
++		if (n < 0 || n >= 64) {
++			break;
++		}
++
++		int de_zig_zagged = PLM_VIDEO_ZIG_ZAG[n];
++		n++;
++
++		coeff <<= 1;
++		if (!self->macroblock_intra) {
++			coeff += (coeff < 0) ? -1 : 1;
++		}
++		coeff = (coeff * quantizer_scale * quant_matrix[de_zig_zagged]) >> 4;
++		if ((coeff & 1) == 0) {
++			coeff -= coeff > 0 ? 1 : -1;
++		}
++		if (coeff > 2047) {
++			coeff = 2047;
++		} else if (coeff < -2048) {
++			coeff = -2048;
++		}
++
++		self->block_data[de_zig_zagged] = coeff * PLM_VIDEO_PREMULTIPLIER_MATRIX[de_zig_zagged];
++	}
++
++	if (n == 1) {
++		int val = (self->block_data[0] + 128) >> 8;
++		int clamped = plm_clamp(val);
++		uint8_t *d;
++		int scan;
++		if (block < 4) {
++			scan = self->luma_width - 8;
++			d = self->frame_current.y.data
++				+ ((self->mb_row << 4) + ((block & 2) << 2)) * self->luma_width
++				+ (self->mb_col << 4) + ((block & 1) << 3);
++		} else {
++			scan = self->chroma_width - 8;
++			uint8_t *plane = (block == 4) ? self->frame_current.cb.data : self->frame_current.cr.data;
++			d = plane + (self->mb_row << 3) * self->chroma_width + (self->mb_col << 3);
++		}
++		for (int sy = 0; sy < 8; sy++) {
++			for (int sx = 0; sx < 8; sx++) {
++				if (self->macroblock_intra) {
++					*d = clamped;
++				} else {
++					int s = *d + val;
++					*d = plm_clamp(s);
++				}
++				d++;
++			}
++			d += scan;
++		}
++		self->block_data[0] = 0;
++		return;
++	}
++
++	plm_video_idct(self->block_data);
++
++	uint8_t *d;
++	int scan;
++	if (block < 4) {
++		scan = self->luma_width - 8;
++		d = self->frame_current.y.data
++			+ ((self->mb_row << 4) + ((block & 2) << 2)) * self->luma_width
++			+ (self->mb_col << 4) + ((block & 1) << 3);
++	} else {
++		scan = self->chroma_width - 8;
++		uint8_t *plane = (block == 4) ? self->frame_current.cb.data : self->frame_current.cr.data;
++		d = plane + (self->mb_row << 3) * self->chroma_width + (self->mb_col << 3);
++	}
++
++	int *s = self->block_data;
++	if (self->macroblock_intra) {
++		for (int sy = 0; sy < 8; sy++) {
++			for (int sx = 0; sx < 8; sx++) {
++				*d++ = plm_clamp(*s);
++				*s++ = 0;
++			}
++			d += scan;
++		}
++	} else {
++		for (int sy = 0; sy < 8; sy++) {
++			for (int sx = 0; sx < 8; sx++) {
++				int val = *d + *s;
++				*d++ = plm_clamp(val);
++				*s++ = 0;
++			}
++			d += scan;
++		}
++	}
++}
++
++static int apeg_decode_motion_vector(plm_buffer_t *buf, int r_size, int motion)
++{
++	int m_code = plm_buffer_read_vlc(buf, APEG_VLC_MOTION);
++	if (m_code <= 0) {
++		return motion;
++	}
++	int sign = plm_buffer_read(buf, 1);
++	int r = (r_size > 0) ? plm_buffer_read(buf, r_size) : 0;
++	int d = ((m_code - 1) << r_size) + r + 1;
++	if (sign) {
++		d = -d;
++	}
++	motion += d;
++	int max_val = (16 << r_size) - 1;
++	int min_val = -(16 << r_size);
++	int range = 32 << r_size;
++	if (motion > max_val)
++		motion -= range;
++	else if (motion < min_val)
++		motion += range;
++	return motion;
++}
++
++static void apeg_decode_picture(plm_video_t *self, int pic_type)
++{
++	self->picture_type = pic_type;
++	self->quantizer_scale = 1;
++	if (pic_type == PLM_VIDEO_PICTURE_TYPE_PREDICTIVE) {
++		self->motion_forward.full_px = plm_buffer_read(self->buffer, 1);
++		self->motion_forward.r_size = plm_buffer_read(self->buffer, 3);
++		plm_buffer_skip(self->buffer, 4);
++	} else if (pic_type == PLM_VIDEO_PICTURE_TYPE_B) {
++		self->motion_forward.full_px = plm_buffer_read(self->buffer, 1);
++		self->motion_forward.r_size = plm_buffer_read(self->buffer, 3);
++		self->motion_backward.full_px = plm_buffer_read(self->buffer, 1);
++		self->motion_backward.r_size = plm_buffer_read(self->buffer, 3);
++	}
++
++	self->dc_predictor[0] = 128;
++	self->dc_predictor[1] = 128;
++	self->dc_predictor[2] = 128;
++	self->motion_forward.h = 0;
++	self->motion_forward.v = 0;
++	self->motion_backward.h = 0;
++	self->motion_backward.v = 0;
++	memset(self->block_data, 0, sizeof(self->block_data));
++
++	if (pic_type == PLM_VIDEO_PICTURE_TYPE_INTRA) {
++		for (int ma = 0; ma < self->mb_size; ma++) {
++			self->mb_row = ma / self->mb_width;
++			self->mb_col = ma % self->mb_width;
++			self->macroblock_address = ma;
++			self->macroblock_type = 0x01;
++			self->macroblock_intra = 1;
++			if (plm_buffer_read(self->buffer, 1) != 0) {
++				self->quantizer_scale = plm_buffer_read(self->buffer, 5);
++			}
++			for (int b = 0; b < 6; b++) {
++				apeg_decode_block(self, b);
++			}
++		}
++		return;
++	}
++
++	int ma = 0;
++	while (ma < self->mb_size) {
++		self->mb_row = ma / self->mb_width;
++		self->mb_col = ma % self->mb_width;
++		self->macroblock_address = ma;
++
++		int mb_type = plm_buffer_read_vlc(self->buffer,
++			pic_type == PLM_VIDEO_PICTURE_TYPE_PREDICTIVE ? APEG_VLC_MB_TYPE_P : APEG_VLC_MB_TYPE_B);
++		if (mb_type < 0)
++			return;
++
++		self->macroblock_type = mb_type;
++		self->macroblock_intra = (mb_type & 0x01);
++
++		if (self->macroblock_intra) {
++			self->motion_forward.h = 0;
++			self->motion_forward.v = 0;
++			self->motion_backward.h = 0;
++			self->motion_backward.v = 0;
++			self->motion_forward.is_set = FALSE;
++			self->motion_backward.is_set = FALSE;
++		} else {
++			self->dc_predictor[0] = 128;
++			self->dc_predictor[1] = 128;
++			self->dc_predictor[2] = 128;
++			self->motion_forward.is_set = (mb_type & 0x08) != 0;
++			self->motion_backward.is_set = (mb_type & 0x04) != 0;
++
++			if (self->motion_forward.is_set) {
++				self->motion_forward.h = apeg_decode_motion_vector(self->buffer, self->motion_forward.r_size, self->motion_forward.h);
++				self->motion_forward.v = apeg_decode_motion_vector(self->buffer, self->motion_forward.r_size, self->motion_forward.v);
++			} else if (pic_type == PLM_VIDEO_PICTURE_TYPE_PREDICTIVE) {
++				self->motion_forward.h = 0;
++				self->motion_forward.v = 0;
++				self->motion_forward.is_set = TRUE;
++			}
++
++			if (self->motion_backward.is_set) {
++				self->motion_backward.h = apeg_decode_motion_vector(self->buffer, self->motion_backward.r_size, self->motion_backward.h);
++				self->motion_backward.v = apeg_decode_motion_vector(self->buffer, self->motion_backward.r_size, self->motion_backward.v);
++			}
++
++			plm_video_predict_macroblock(self);
++		}
++
++		int cbp = 0;
++		if (self->macroblock_intra) {
++			cbp = 0x3f;
++		} else if (mb_type & 0x02) {
++			cbp = plm_buffer_read_vlc(self->buffer, APEG_VLC_CBP);
++			if (cbp < 0)
++				return;
++		}
++
++		if (mb_type & 0x10) {
++			self->quantizer_scale = plm_buffer_read(self->buffer, 5);
++		}
++
++		int skip = 0;
++		while (TRUE) {
++			int v = plm_buffer_read_vlc(self->buffer, APEG_VLC_SKIP);
++			if (v == -1) {
++				skip += 35;
++			} else if (v >= 0) {
++				skip += v;
++				break;
++			} else {
++				return;
++			}
++		}
++
++		for (int b = 0, mask = 0x20; b < 6; b++, mask >>= 1) {
++			if (cbp & mask) {
++				apeg_decode_block(self, b);
++			}
++		}
++
++		if (skip > 0) {
++			self->dc_predictor[0] = 128;
++			self->dc_predictor[1] = 128;
++			self->dc_predictor[2] = 128;
++			if (pic_type == PLM_VIDEO_PICTURE_TYPE_PREDICTIVE) {
++				self->motion_forward.h = 0;
++				self->motion_forward.v = 0;
++				self->motion_forward.is_set = TRUE;
++				self->motion_backward.is_set = FALSE;
++			}
++			for (int s = 0; s < skip && ma + 1 < self->mb_size; s++) {
++				ma++;
++				self->mb_row = ma / self->mb_width;
++				self->mb_col = ma % self->mb_width;
++				self->macroblock_address = ma;
++				plm_video_predict_macroblock(self);
++			}
++		}
++
++		ma++;
++	}
++}
++
++/* Display order is the donor's I/P reference rotation followed by B pictures.
++ * Only compressed picture data is buffered; the three YCbCr frames are reused. */
++static plm_frame_t *apeg_decode_next_frame(struct apeg_decoder *apeg, int skip_b_before_ms)
++{
++	if (apeg->eof)
++		return NULL;
++	while (!apeg->eof) {
++		uint8_t chdr[8];
++		long chunk_pos = ftell(apeg->fp);
++		if (chunk_pos < 0)
++			break;
++		if (chunk_pos == apeg->file_size) {
++			apeg->eof = true;
++			if (apeg->has_ref) {
++				apeg->has_ref = false;
++				return &apeg->vdec->frame_backward;
++			}
++			return NULL;
++		}
++		if (fread(chdr, 1, sizeof(chdr), apeg->fp) != sizeof(chdr))
++			break;
++		uint32_t csz = LittleEndian_getDW(chdr, 4);
++		if ((uint64_t)chunk_pos + 8 + csz > (uint64_t)apeg->file_size)
++			break;
++		bool is_ipic = !memcmp(chdr, "IPIC", 4);
++		bool is_ppic = !memcmp(chdr, "PPIC", 4);
++		bool is_bpic = !memcmp(chdr, "BPIC", 4);
++		if (!is_ipic && !is_ppic && !is_bpic) {
++			if (fseek(apeg->fp, (long)csz, SEEK_CUR) != 0)
++				break;
++			continue;
++		}
++		if (csz <= 4 || (is_ppic && !apeg->has_ref))
++			break;
++		uint8_t ts_buf[4];
++		if (fread(ts_buf, 1, sizeof(ts_buf), apeg->fp) != sizeof(ts_buf))
++			break;
++		uint32_t chunk_ts = LittleEndian_getDW(ts_buf, 0);
++		uint32_t payload_sz = csz - 4;
++		if (chunk_ts > INT_MAX)
++			break;
++		if (is_bpic && (!apeg->has_both_refs || (int)chunk_ts < skip_b_before_ms)) {
++			if (fseek(apeg->fp, (long)payload_sz, SEEK_CUR) != 0)
++				break;
++			continue;
++		}
++
++		/* Read directly into the reusable bit buffer, without a second copy. */
++		if ((uint64_t)payload_sz + 8 > SIZE_MAX)
++			break;
++		size_t needed = (size_t)payload_sz + 8;
++		if (needed > apeg->bitbuf->capacity) {
++			size_t capacity = needed <= SIZE_MAX / 2 ? needed * 2 : needed;
++			apeg->bitbuf->bytes = xrealloc(apeg->bitbuf->bytes, capacity);
++			apeg->bitbuf->capacity = capacity;
++		}
++		if (fread(apeg->bitbuf->bytes, 1, payload_sz, apeg->fp) != payload_sz)
++			break;
++		memset(apeg->bitbuf->bytes + payload_sz, 0, 8);
++		apeg->bitbuf->length = needed;
++		apeg->bitbuf->bit_index = 0;
++		apeg->bitbuf->has_ended = FALSE;
++
++		if (is_ipic || is_ppic) {
++			plm_frame_t frame_temp = apeg->vdec->frame_forward;
++			apeg->vdec->frame_forward = apeg->vdec->frame_backward;
++			apeg_decode_picture(apeg->vdec, is_ipic ? PLM_VIDEO_PICTURE_TYPE_INTRA : PLM_VIDEO_PICTURE_TYPE_PREDICTIVE);
++			apeg->vdec->frame_current.time = (double)chunk_ts / 1000.0;
++			apeg->vdec->frame_backward = apeg->vdec->frame_current;
++			apeg->vdec->frame_current = frame_temp;
++			if (apeg->has_ref) {
++				apeg->has_both_refs = true;
++				return &apeg->vdec->frame_forward;
++			}
++			apeg->has_ref = true;
++		} else {
++			apeg_decode_picture(apeg->vdec, PLM_VIDEO_PICTURE_TYPE_B);
++			apeg->vdec->frame_current.time = (double)chunk_ts / 1000.0;
++			return &apeg->vdec->frame_current;
++		}
++	}
++	apeg->eof = true;
++	WARNING("APEG: invalid or unreadable picture chunk");
++	return NULL;
++}
++
++void apeg_decoder_close(struct apeg_decoder *apeg)
++{
++	if (!apeg)
++		return;
++	if (apeg->vdec)
++		plm_video_destroy(apeg->vdec);
++	else if (apeg->bitbuf)
++		plm_buffer_destroy(apeg->bitbuf);
++	free(apeg->keyframes);
++	if (apeg->fp)
++		fclose(apeg->fp);
++	free(apeg);
++}
++
++struct apeg_decoder *apeg_decoder_open(FILE *fp)
++{
++	if (!fp)
++		return NULL;
++	struct apeg_decoder *apeg = xcalloc(1, sizeof(*apeg));
++	apeg->fp = fp;
++	uint8_t *hdr = NULL;
++	if (fseek(fp, 0, SEEK_END) != 0 || (apeg->file_size = ftell(fp)) < 0
++		|| fseek(fp, 0, SEEK_SET) != 0)
++		goto fail;
++	uint8_t pre[8];
++	if (fread(pre, 1, sizeof(pre), fp) != sizeof(pre) || memcmp(pre, "APEG", 4))
++		goto fail;
++	uint32_t hdr_size = LittleEndian_getDW(pre, 4);
++	if (hdr_size < 0x90 || hdr_size > 16 * 1024 * 1024
++		|| (uint64_t)hdr_size + 8 > (uint64_t)apeg->file_size)
++		goto fail;
++	hdr = xmalloc(hdr_size);
++	if (fread(hdr, 1, hdr_size, fp) != hdr_size)
++		goto fail;
++	apeg->width = LittleEndian_getW(hdr, 0x04);
++	apeg->height = LittleEndian_getW(hdr, 0x06);
++	uint32_t duration = LittleEndian_getDW(hdr, 0x88);
++	if (apeg->width <= 0 || apeg->width > 4096 || apeg->height <= 0
++		|| apeg->height > 4096 || duration == 0 || duration > INT_MAX)
++		goto fail;
++	apeg->end_time_ms = (int)duration;
++	apeg->keyframe_count = LittleEndian_getDW(hdr, 0x8c);
++	if (apeg->keyframe_count > (hdr_size - 0x90) / 8)
++		goto fail;
++	if (apeg->keyframe_count) {
++		apeg->keyframes = xcalloc(apeg->keyframe_count, sizeof(*apeg->keyframes));
++		for (uint32_t i = 0; i < apeg->keyframe_count; i++) {
++			struct apeg_keyframe *kf = &apeg->keyframes[i];
++			kf->time_ms = LittleEndian_getDW(hdr, 0x90 + i * 8);
++			kf->file_offset = LittleEndian_getDW(hdr, 0x94 + i * 8);
++			if (kf->time_ms > duration || (i && kf->time_ms < apeg->keyframes[i - 1].time_ms)
++				|| (uint64_t)kf->file_offset + 12 > (uint64_t)apeg->file_size)
++				goto fail;
++		}
++	}
++
++	/* Locate SOND without loading it, then leave fp at the first I picture. */
++	for (;;) {
++		long chunk_pos = ftell(fp);
++		uint8_t chdr[8];
++		if (chunk_pos < 0 || fread(chdr, 1, sizeof(chdr), fp) != sizeof(chdr))
++			goto fail;
++		uint32_t csz = LittleEndian_getDW(chdr, 4);
++		if ((uint64_t)chunk_pos + 8 + csz > (uint64_t)apeg->file_size)
++			goto fail;
++		if (!memcmp(chdr, "IPIC", 4) || !memcmp(chdr, "PPIC", 4) || !memcmp(chdr, "BPIC", 4)) {
++			if (memcmp(chdr, "IPIC", 4) || csz <= 4 || fseek(fp, chunk_pos, SEEK_SET) != 0)
++				goto fail;
++			apeg->first_chunk_offset = chunk_pos;
++			break;
++		}
++		if (!memcmp(chdr, "SOND", 4) && csz && !apeg->sound_size) {
++			apeg->sound_offset = chunk_pos + 8;
++			apeg->sound_size = csz;
++		}
++		if (fseek(fp, (long)csz, SEEK_CUR) != 0)
++			goto fail;
++	}
++	for (uint32_t i = 0; i < apeg->keyframe_count; i++) {
++		if (apeg->keyframes[i].file_offset < (uint64_t)apeg->first_chunk_offset)
++			goto fail;
++	}
++
++	apeg->bitbuf = plm_buffer_create_with_capacity(64 * 1024);
++	apeg->vdec = plm_video_create_with_buffer(apeg->bitbuf, TRUE);
++	plm_video_t *vdec = apeg->vdec;
++	vdec->width = apeg->width;
++	vdec->height = apeg->height;
++	vdec->mb_width = (apeg->width + 15) >> 4;
++	vdec->mb_height = (apeg->height + 15) >> 4;
++	vdec->mb_size = vdec->mb_width * vdec->mb_height;
++	vdec->luma_width = vdec->mb_width << 4;
++	vdec->luma_height = vdec->mb_height << 4;
++	vdec->chroma_width = vdec->mb_width << 3;
++	vdec->chroma_height = vdec->mb_height << 3;
++	size_t frame_data_size = (size_t)vdec->mb_size * 384;
++	vdec->frames_data = xcalloc(3, frame_data_size);
++	plm_video_init_frame(vdec, &vdec->frame_current, vdec->frames_data);
++	plm_video_init_frame(vdec, &vdec->frame_forward, vdec->frames_data + frame_data_size);
++	plm_video_init_frame(vdec, &vdec->frame_backward, vdec->frames_data + frame_data_size * 2);
++	memcpy(vdec->intra_quant_matrix, hdr + 0x08, 64);
++	memcpy(vdec->non_intra_quant_matrix, hdr + 0x48, 64);
++	vdec->has_sequence_header = TRUE;
++	free(hdr);
++	return apeg;
++
++fail:
++	WARNING("APEG: invalid header or unreadable movie file");
++	free(hdr);
++	apeg_decoder_close(apeg);
++	return NULL;
++}
++
++int apeg_decoder_width(struct apeg_decoder *apeg) { return apeg->width; }
++int apeg_decoder_height(struct apeg_decoder *apeg) { return apeg->height; }
++int apeg_decoder_duration(struct apeg_decoder *apeg) { return apeg->end_time_ms; }
++
++unsigned char *apeg_decoder_read_sound(struct apeg_decoder *apeg, size_t *size)
++{
++	*size = 0;
++	if (!apeg->sound_size)
++		return NULL;
++	fpos_t pos;
++	if (fgetpos(apeg->fp, &pos) != 0)
++		return NULL;
++	unsigned char *data = malloc(apeg->sound_size);
++	if (!data)
++		return NULL;
++	bool ok = fseek(apeg->fp, apeg->sound_offset, SEEK_SET) == 0
++		&& fread(data, 1, apeg->sound_size, apeg->fp) == apeg->sound_size;
++	if (fsetpos(apeg->fp, &pos) != 0) {
++		WARNING("APEG: cannot restore video cursor after reading sound");
++		apeg->pending_frame = NULL;
++		apeg->eof = true;
++		ok = false;
++	}
++	if (!ok) {
++		free(data);
++		return NULL;
++	}
++	*size = apeg->sound_size;
++	return data;
++}
++
++bool apeg_decoder_seek(struct apeg_decoder *apeg, int msec)
++{
++	if (msec < 0)
++		msec = 0;
++	if (msec > apeg->end_time_ms)
++		msec = apeg->end_time_ms;
++	long offset = apeg->first_chunk_offset;
++	for (uint32_t i = 0; i < apeg->keyframe_count; i++) {
++		if (apeg->keyframes[i].time_ms > (uint32_t)msec)
++			break;
++		offset = (long)apeg->keyframes[i].file_offset;
++	}
++	apeg->pending_frame = NULL;
++	apeg->seek_frame_due = false;
++	if (fseek(apeg->fp, offset, SEEK_SET) != 0) {
++		apeg->eof = true;
++		return false;
++	}
++	apeg->has_ref = false;
++	apeg->has_both_refs = false;
++	apeg->eof = false;
++	int skip_b_before_ms = msec - 33;
++	plm_frame_t *frame = apeg_decode_next_frame(apeg, skip_b_before_ms);
++	while (frame && frame->time * 1000.0 + 16.0 < (double)msec && !apeg->eof) {
++		plm_frame_t *next = apeg_decode_next_frame(apeg, skip_b_before_ms);
++		if (!next)
++			break;
++		frame = next;
++	}
++	apeg->pending_frame = frame;
++	apeg->seek_frame_due = frame != NULL;
++	return frame != NULL;
++}
++
++plm_frame_t *apeg_decoder_frame(struct apeg_decoder *apeg, int msec)
++{
++	if (msec < 0)
++		msec = 0;
++	if (msec > apeg->end_time_ms)
++		msec = apeg->end_time_ms;
++	if (!apeg->pending_frame)
++		apeg->pending_frame = apeg_decode_next_frame(apeg, msec - 33);
++	plm_frame_t *frame = apeg->pending_frame;
++	if (!frame || (!apeg->seek_frame_due && frame->time > (double)msec / 1000.0))
++		return NULL;
++	/* Match the donor's 35 ms catch-up window and old-B-picture skipping.
++	 * Only the final candidate reaches the renderer, so each update uploads
++	 * at most one YCbCr frame. */
++	while (frame->time + 0.035 < (double)msec / 1000.0 && !apeg->eof) {
++		plm_frame_t *next = apeg_decode_next_frame(apeg, msec - 33);
++		if (!next)
++			break;
++		frame = next;
++	}
++	if (!apeg->seek_frame_due && frame->time > (double)msec / 1000.0) {
++		apeg->pending_frame = frame;
++		return NULL;
++	}
++	apeg->pending_frame = NULL;
++	apeg->seek_frame_due = false;
++	return frame;
 +}
 diff --git a/src/asset_manager.c b/src/asset_manager.c
 index 1bca82c..7abc39b 100644
@@ -14494,7 +15737,7 @@ index 86bcf73..90c2928 100644
  				}
  			}
 diff --git a/src/meson.build b/src/meson.build
-index 78414bb..9de2d36 100644
+index 78414bb..def3d40 100644
 --- a/src/meson.build
 +++ b/src/meson.build
 @@ -5,12 +5,14 @@ version_h = vcs_tag(command : ['git', 'describe', 'HEAD'],
@@ -14520,18 +15763,19 @@ index 78414bb..9de2d36 100644
              'resume.c',
              'savedata.c',
              'scene.c',
-@@ -33,6 +36,10 @@ xsystem4 = [version_h,
+@@ -33,6 +36,11 @@ xsystem4 = [version_h,
              'swf.c',
              'system4.c',
              'text.c',
 +            'time_scale.c',
 +            'frame_profile.c',
 +            'apeg.c',
++            'apeg_decoder.c',
 +            'trace_log.c',
              'util.c',
              'video.c',
              'vm.c',
-@@ -82,6 +89,8 @@ xsystem4 = [version_h,
+@@ -82,6 +90,8 @@ xsystem4 = [version_h,
              'hll/AliceLogo5.c',
              'hll/AnteaterADVEngine.c',
              'hll/Array.c',
@@ -14541,10 +15785,18 @@ index 78414bb..9de2d36 100644
              'hll/Bitarray.c',
              'hll/CalcTable.c',
 diff --git a/src/movie_plmpeg.c b/src/movie_plmpeg.c
-index e90024a..b4775c7 100644
+index e90024a..e8cc8b6 100644
 --- a/src/movie_plmpeg.c
 +++ b/src/movie_plmpeg.c
-@@ -38,6 +38,9 @@ static Shader movie_shader;
+@@ -31,13 +31,16 @@
+ #include "sts_mixer.h"
+ #include "xsystem4.h"
+ 
+-#define PL_MPEG_IMPLEMENTATION
++// The implementation is shared with APEG in apeg_decoder.c.
+ #include "pl_mpeg.h"
+ 
+ static Shader movie_shader;
  
  struct movie_context {
  	plm_t *plm;
@@ -14584,9 +15836,12 @@ index e90024a..b4775c7 100644
  struct movie_context *movie_load(const char *filename)
  {
  	struct movie_context *mc = xcalloc(1, sizeof(struct movie_context));
-@@ -127,10 +153,38 @@ struct movie_context *movie_load(const char *filename)
+@@ -125,12 +151,40 @@ struct movie_context *movie_load(const char *filename)
+ 		movie_free(mc);
+ 		return NULL;
  	}
- 	mc->plm = plm_create_with_file(fp, TRUE);
+-	mc->plm = plm_create_with_file(fp, TRUE);
++	mc->plm = plm_create_with_file(fp, true);
  	if (!plm_has_headers(mc->plm)) {
 -		WARNING("%s: not a MPEG-PS file", path);
 +		// plm owns the file (close_when_done), so destroying it closes it too.
@@ -14599,7 +15854,7 @@ index e90024a..b4775c7 100644
 +			       display_utf0(path), display_utf0(alt));
 +			FILE *afp = file_open_utf8(alt, "rb");
 +			if (afp) {
-+				mc->plm = plm_create_with_file(afp, TRUE);
++				mc->plm = plm_create_with_file(afp, true);
 +				if (plm_has_headers(mc->plm)) {
 +					free(path);
 +					path = alt;
@@ -14644,6 +15899,15 @@ index e90024a..b4775c7 100644
  	// Decode a frame, unless we already have one.
  	plm_frame_t *frame = mc->pending_video_frame;
  	mc->pending_video_frame = NULL;
+@@ -191,7 +249,7 @@ bool movie_draw(struct movie_context *mc, struct sact_sprite *sprite)
+ 		frame = plm_decode_video(mc->plm);
+ 		SDL_UnlockMutex(mc->decoder_mutex);
+ 		if (!frame)
+-			return plm_video_has_ended(mc->plm->video_decoder);
++			return plm_has_ended(mc->plm);
+ 	}
+ 
+ 	// If the frame's timestamp is in the future, save the frame and return.
 @@ -247,11 +305,15 @@ bool movie_draw(struct movie_context *mc, struct sact_sprite *sprite)
  
  bool movie_is_end(struct movie_context *mc)
@@ -17463,7 +18727,7 @@ index 0000000..7cf3cf3
 +PANEL_GRADATION(Right, 3)
 +#undef PANEL_GRADATION
 diff --git a/src/parts/parts.c b/src/parts/parts.c
-index 5735c9f..0f2b16a 100644
+index 5735c9f..fa80efa 100644
 --- a/src/parts/parts.c
 +++ b/src/parts/parts.c
 @@ -15,26 +15,38 @@
@@ -18059,7 +19323,7 @@ index 5735c9f..0f2b16a 100644
  		return false;
  
  	const unsigned elapsed = anim->elapsed + passed_time;
-@@ -960,16 +1118,24 @@ static bool parts_animation_update(struct parts_animation *anim, int passed_time
+@@ -960,17 +1118,30 @@ static bool parts_animation_update(struct parts_animation *anim, int passed_time
  
  static void parts_update_loop(struct parts *parts, int passed_time)
  {
@@ -18086,9 +19350,15 @@ index 5735c9f..0f2b16a 100644
 -		dirty = parts_flat_update(&parts->states[parts->state].flat, passed_time);
 +		dirty |= parts_flat_update(&parts->states[parts->state].flat, passed_time);
  		break;
++	case PARTS_MOVIE: {
++		struct parts_movie *movie = &parts->states[parts->state].movie;
++		dirty |= apeg_draw(movie->player, &movie->common.texture);
++		break;
++	}
  	default:
  		break;
-@@ -995,8 +1161,24 @@ void parts_release(int parts_no)
+ 	}
+@@ -995,8 +1166,24 @@ void parts_release(int parts_no)
  	struct parts *parts = slot->value;
  	parts_input_reset_drag(parts);
  	parts_clear_motion(parts);
@@ -18113,7 +19383,7 @@ index 5735c9f..0f2b16a 100644
  	}
  
  	// break parent/child relationships
-@@ -1007,6 +1189,8 @@ void parts_release(int parts_no)
+@@ -1007,6 +1194,8 @@ void parts_release(int parts_no)
  		parts_component_dirty(child);
  	}
  	if (parts->parent) {
@@ -18122,7 +19392,7 @@ index 5735c9f..0f2b16a 100644
  		TAILQ_REMOVE(&parts->parent->children, parts, child_list_entry);
  		parts->parent = NULL;
  	}
-@@ -1064,7 +1248,11 @@ bool PE_Init(void)
+@@ -1064,7 +1253,11 @@ bool PE_Init(void)
  
  void PE_Reset(void)
  {
@@ -18134,7 +19404,7 @@ index 5735c9f..0f2b16a 100644
  	PE_ReleaseMessage();
  	ctrl_stack_init();
  	sact_ModuleFini();
-@@ -1083,7 +1271,7 @@ static void parts_combine_params(struct parts_params *parent, struct parts_param
+@@ -1083,7 +1276,7 @@ static void parts_combine_params(struct parts_params *parent, struct parts_param
  		struct parts_params *out)
  {
  	out->z = parent->z + child->z;
@@ -18143,7 +19413,7 @@ index 5735c9f..0f2b16a 100644
  	out->show = parent->show && child->show;
  	out->alpha = parent->alpha * (child->alpha / 255.0f);
  	out->scale.x = parent->scale.x * child->scale.x;
-@@ -1091,9 +1279,9 @@ static void parts_combine_params(struct parts_params *parent, struct parts_param
+@@ -1091,9 +1284,9 @@ static void parts_combine_params(struct parts_params *parent, struct parts_param
  	out->rotation.x = parent->rotation.x + child->rotation.x;
  	out->rotation.y = parent->rotation.y + child->rotation.y;
  	out->rotation.z = parent->rotation.z + child->rotation.z;
@@ -18156,7 +19426,7 @@ index 5735c9f..0f2b16a 100644
  	out->multiply_color.r = parent->multiply_color.r * (child->multiply_color.r / 255.0f);
  	out->multiply_color.g = parent->multiply_color.g * (child->multiply_color.g / 255.0f);
  	out->multiply_color.b = parent->multiply_color.b * (child->multiply_color.b / 255.0f);
-@@ -1101,10 +1289,72 @@ static void parts_combine_params(struct parts_params *parent, struct parts_param
+@@ -1101,10 +1294,72 @@ static void parts_combine_params(struct parts_params *parent, struct parts_param
  			? child->alpha_clipper_parts_no : parent->alpha_clipper_parts_no;
  }
  
@@ -18230,7 +19500,7 @@ index 5735c9f..0f2b16a 100644
  	if (parts_get_sprite_z(parts) != parts->sp.z
  			|| parts_get_sprite_z2(parts) != parts->sp.z2) {
  		parts_list_resort(parts);
-@@ -1123,6 +1373,13 @@ static void parts_update_component(struct parts *parts)
+@@ -1123,6 +1378,13 @@ static void parts_update_component(struct parts *parts)
  	}
  }
  
@@ -18244,7 +19514,7 @@ index 5735c9f..0f2b16a 100644
  void PE_UpdateComponent(possibly_unused int passed_time)
  {
  	// After loading a save, the game script may compute a negative time delta
-@@ -1130,28 +1387,19 @@ void PE_UpdateComponent(possibly_unused int passed_time)
+@@ -1130,28 +1392,19 @@ void PE_UpdateComponent(possibly_unused int passed_time)
  	// which is meaningless across process restarts.
  	if (passed_time < 0)
  		passed_time = 0;
@@ -18280,7 +19550,7 @@ index 5735c9f..0f2b16a 100644
  
  		// don't do anything here if parent is dirty
  		if (parts_has_dirty_parent(parts))
-@@ -1163,23 +1411,51 @@ void PE_UpdateComponent(possibly_unused int passed_time)
+@@ -1163,23 +1416,51 @@ void PE_UpdateComponent(possibly_unused int passed_time)
  }
  
  bool parts_message_window_show = true;
@@ -18332,7 +19602,7 @@ index 5735c9f..0f2b16a 100644
  }
  
  void PE_SetDelegateIndex(int parts_no, int delegate_index)
-@@ -1307,6 +1583,8 @@ static bool _parts_animation_set_cg(struct parts *parts, struct parts_animation
+@@ -1307,6 +1588,8 @@ static bool _parts_animation_set_cg(struct parts *parts, struct parts_animation
  		int start_no, int nr_frames, int frame_time,
  		struct cg *(*load_cg)(int no, void *data), void *data)
  {
@@ -18341,7 +19611,7 @@ index 5735c9f..0f2b16a 100644
  	int w = 0, h = 0;
  	Texture *frames = xcalloc(nr_frames, sizeof(Texture));
  	for (int i = 0; i < nr_frames; i++) {
-@@ -1325,6 +1603,8 @@ static bool _parts_animation_set_cg(struct parts *parts, struct parts_animation
+@@ -1325,6 +1608,8 @@ static bool _parts_animation_set_cg(struct parts *parts, struct parts_animation
  	}
  
  	parts_set_dims(parts, &anim->common, w, h);
@@ -18350,7 +19620,7 @@ index 5735c9f..0f2b16a 100644
  	free(anim->frames);
  	anim->start_no = start_no;
  	anim->frames = frames;
-@@ -1344,8 +1624,13 @@ static struct cg *load_loop_cg_by_index(int no, void *_)
+@@ -1344,8 +1629,13 @@ static struct cg *load_loop_cg_by_index(int no, void *_)
  bool parts_animation_set_cg_by_index(struct parts *parts, struct parts_animation *anim,
  		int cg_no, int nr_frames, int frame_time)
  {
@@ -18365,7 +19635,7 @@ index 5735c9f..0f2b16a 100644
  }
  
  bool PE_SetLoopCG_by_index(int parts_no, int cg_no, int nr_frames, int frame_time, int state)
-@@ -1414,12 +1699,11 @@ bool PE_SetLoopCGSurfaceArea(int parts_no, int x, int y, int w, int h, int state
+@@ -1414,12 +1704,11 @@ bool PE_SetLoopCGSurfaceArea(int parts_no, int x, int y, int w, int h, int state
  
  static void _parts_set_gauge_cg(struct parts *parts, struct parts_gauge *g, struct cg *cg)
  {
@@ -18380,7 +19650,7 @@ index 5735c9f..0f2b16a 100644
  	parts_set_dims(parts, &g->common, g->cg.w, g->cg.h);
  
  	parts_dirty(parts);
-@@ -1434,6 +1718,9 @@ bool parts_gauge_set_cg(struct parts *parts, struct parts_gauge *g, struct strin
+@@ -1434,6 +1723,9 @@ bool parts_gauge_set_cg(struct parts *parts, struct parts_gauge *g, struct strin
  	_parts_set_gauge_cg(parts, g, cg);
  	cg_free(cg);
  	g->cg_no = cg_no;
@@ -18390,7 +19660,7 @@ index 5735c9f..0f2b16a 100644
  	return true;
  }
  
-@@ -1445,6 +1732,8 @@ bool parts_gauge_set_cg_by_index(struct parts *parts, struct parts_gauge *g, int
+@@ -1445,6 +1737,8 @@ bool parts_gauge_set_cg_by_index(struct parts *parts, struct parts_gauge *g, int
  	_parts_set_gauge_cg(parts, g, cg);
  	cg_free(cg);
  	g->cg_no = cg_no;
@@ -18399,7 +19669,7 @@ index 5735c9f..0f2b16a 100644
  	return true;
  }
  
-@@ -1494,9 +1783,11 @@ void parts_hgauge_set_rate(struct parts *parts, struct parts_gauge *g, float rat
+@@ -1494,9 +1788,11 @@ void parts_hgauge_set_rate(struct parts *parts, struct parts_gauge *g, float rat
  		WARNING("HGauge texture uninitialized");
  		return;
  	}
@@ -18413,7 +19683,7 @@ index 5735c9f..0f2b16a 100644
  	parts_dirty(parts);
  	g->rate = rate;
  }
-@@ -1521,7 +1812,9 @@ bool PE_SetHGaugeRate(int parts_no, float numerator, float denominator, int stat
+@@ -1521,7 +1817,9 @@ bool PE_SetHGaugeRate(int parts_no, float numerator, float denominator, int stat
  
  	struct parts *parts = parts_get(parts_no);
  	struct parts_gauge *g = parts_get_hgauge(parts, state);
@@ -18424,7 +19694,7 @@ index 5735c9f..0f2b16a 100644
  	return true;
  }
  
-@@ -1537,7 +1830,9 @@ bool PE_SetVGaugeRate(int parts_no, float numerator, float denominator, int stat
+@@ -1537,7 +1835,9 @@ bool PE_SetVGaugeRate(int parts_no, float numerator, float denominator, int stat
  
  	struct parts *parts = parts_get(parts_no);
  	struct parts_gauge *g = parts_get_vgauge(parts, state);
@@ -18435,7 +19705,7 @@ index 5735c9f..0f2b16a 100644
  	return true;
  }
  
-@@ -1577,6 +1872,36 @@ bool PE_SetNumeralCG(int parts_no, struct string *cg_name, int state)
+@@ -1577,6 +1877,36 @@ bool PE_SetNumeralCG(int parts_no, struct string *cg_name, int state)
  	return true;
  }
  
@@ -18472,7 +19742,7 @@ index 5735c9f..0f2b16a 100644
  bool PE_SetNumeralCG_by_index(int parts_no, int cg_no, int state)
  {
  	if (!parts_state_valid(--state))
-@@ -1630,6 +1955,15 @@ bool PE_SetNumeralNumber(int parts_no, int n, int state)
+@@ -1630,6 +1960,15 @@ bool PE_SetNumeralNumber(int parts_no, int n, int state)
  	return parts_numeral_set_number(parts, numeral, n);
  }
  
@@ -18488,7 +19758,7 @@ index 5735c9f..0f2b16a 100644
  bool PE_SetNumeralShowComma(int parts_no, bool show_comma, int state)
  {
  	if (!parts_state_valid(--state))
-@@ -1735,6 +2069,11 @@ void PE_SetZ(int parts_no, int z)
+@@ -1735,6 +2074,11 @@ void PE_SetZ(int parts_no, int z)
  void PE_SetShow(int parts_no, bool show)
  {
  	parts_set_show(parts_get(parts_no), show);
@@ -18500,7 +19770,7 @@ index 5735c9f..0f2b16a 100644
  }
  
  void PE_SetAlpha(int parts_no, int alpha)
-@@ -1866,16 +2205,28 @@ int PE_GetPartsOriginPosMode(int parts_no)
+@@ -1866,16 +2210,28 @@ int PE_GetPartsOriginPosMode(int parts_no)
  void PE_SetParentPartsNumber(int parts_no, int parent_parts_no)
  {
  	struct parts *parts = parts_get(parts_no);
@@ -18532,7 +19802,7 @@ index 5735c9f..0f2b16a 100644
  }
  
  bool PE_SetPartsGroupNumber(possibly_unused int PartsNumber, possibly_unused int GroupNumber)
-@@ -1898,6 +2249,13 @@ bool PE_GetPartsMessageWindowShowLink(int parts_no)
+@@ -1898,6 +2254,13 @@ bool PE_GetPartsMessageWindowShowLink(int parts_no)
  void PE_SetPartsMagX(int parts_no, float scale_x)
  {
  	struct parts *parts = parts_get(parts_no);
@@ -18546,7 +19816,7 @@ index 5735c9f..0f2b16a 100644
  	parts_set_scale_x(parts, scale_x);
  }
  
-@@ -1919,13 +2277,11 @@ float PE_GetPartsMagY(int parts_no)
+@@ -1919,13 +2282,11 @@ float PE_GetPartsMagY(int parts_no)
  
  void PE_SetPartsRotateX(int parts_no, float rot_x)
  {
@@ -18560,7 +19830,7 @@ index 5735c9f..0f2b16a 100644
  	parts_set_rotation_y(parts_get(parts_no), rot_y);
  }
  
-@@ -1970,8 +2326,8 @@ bool PE_save_thumbnail(struct string *filename, int reduction_factor)
+@@ -1970,8 +2331,8 @@ bool PE_save_thumbnail(struct string *filename, int reduction_factor)
  		reduction_factor = 1;
  
  	Texture *src = gfx_main_surface();
@@ -18571,7 +19841,7 @@ index 5735c9f..0f2b16a 100644
  
  	// Downscale by repeatedly halving until we are within a factor of two of
  	// the target size, then do the final stretch. This avoids the aliasing
-@@ -1996,6 +2352,13 @@ bool PE_save_thumbnail(struct string *filename, int reduction_factor)
+@@ -1996,6 +2357,13 @@ bool PE_save_thumbnail(struct string *filename, int reduction_factor)
  		gfx_delete_texture(&tmp);
  
  	char *path = savedir_path(filename->text);
@@ -18585,7 +19855,7 @@ index 5735c9f..0f2b16a 100644
  	int r = gfx_save_texture(&dst, path, ALCG_QNT);
  	free(path);
  	gfx_delete_texture(&dst);
-@@ -2022,6 +2385,38 @@ void PE_SetComponentType(int parts_no, int type, int state)
+@@ -2022,6 +2390,38 @@ void PE_SetComponentType(int parts_no, int type, int state)
  		return;
  	struct parts *parts = parts_get(parts_no);
  	enum parts_type pt = PARTS_UNINITIALIZED;
@@ -18624,7 +19894,7 @@ index 5735c9f..0f2b16a 100644
  	switch (type) {
  	case 8:  pt = PARTS_LAYOUT_BOX; break;
  	case 11: pt = PARTS_CG; break;
-@@ -2049,22 +2444,23 @@ int PE_GetComponentType(int parts_no, int state)
+@@ -2049,22 +2449,23 @@ int PE_GetComponentType(int parts_no, int state)
  	struct parts *parts = parts_try_get(parts_no);
  	if (!parts)
  		return -1;
@@ -18660,7 +19930,7 @@ index 5735c9f..0f2b16a 100644
  	case PARTS_FLASH:
  		break;
  	}
-@@ -2106,74 +2502,158 @@ bool PE_IsExist(int parts_no)
+@@ -2106,74 +2507,158 @@ bool PE_IsExist(int parts_no)
  	return !!ht_get_int(parts_table, parts_no, NULL);
  }
  
@@ -18848,7 +20118,7 @@ index 5735c9f..0f2b16a 100644
  		ctrl_stack.active = controller_no;
  	else
  		VM_ERROR("Invalid controller number: %d", controller_no);
-@@ -2246,6 +2726,78 @@ bool PE_init_parts_movie(int parts_no, int width, int height, int bg_r, int bg_g
+@@ -2246,6 +2731,78 @@ bool PE_init_parts_movie(int parts_no, int width, int height, int bg_r, int bg_g
  	return true;
  }
  
