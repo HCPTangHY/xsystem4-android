@@ -52,7 +52,7 @@ ${macro('AIN_REF_ARRAY_TYPE')}
 union vm_value { int32_t i; float f; void *ref; };
 enum { GLOBAL_PAGE, LOCAL_PAGE, STRUCT_PAGE, ARRAY_PAGE, DELEGATE_PAGE, CLOSURE_PAGE };
 enum { VM_PAGE, VM_STRING };
-struct page { int type; union {int a_type,index;}; struct { int struct_type, rank; } array; struct {int struct_ptr,parent_page;unsigned struct_seq;} local; int nr_vars; union vm_value values[]; };
+struct page { int type; union {int a_type,index;}; struct { int struct_type, rank; } array; struct {int struct_ptr,parent_page;unsigned struct_seq;} local; struct {int live_slot;unsigned live_seq;} delegate; int nr_vars; union vm_value values[]; };
 struct string { int marker; const char *text; };
 struct string EMPTY_STRING={.text=""};
 struct vm_pointer { int ref, type; struct page *page; struct string *s; };

@@ -86,7 +86,8 @@ class PEResourceExtractor(val buf: ByteBuffer, private val rvaDelta: Int) {
             }?.let { this@PEResourceExtractor.getResource(it.offset) }
         }
 
-        fun getFirstResource(): ByteArray {
+        fun getFirstResource(): ByteArray? {
+            if (entries.isEmpty()) return null
             return if (entries[0].isDirectory) {
                 ResourceDirectory(entries[0].offset).getFirstResource()
             } else {
@@ -98,11 +99,13 @@ class PEResourceExtractor(val buf: ByteBuffer, private val rvaDelta: Int) {
     private fun getRoot() = ResourceDirectory(0)
     fun getDirectory(type: Int): ResourceDirectory? = getRoot().getDirectory(type)
 
-    fun getResource(offset: Int): ByteArray {
+    fun getResource(offset: Int): ByteArray? {
         buf.reset()
+        if (offset < 0 || buf.position() + offset + 8 > buf.limit()) return null
         buf.skip(offset)
         val offsetInFile = buf.int - rvaDelta
         val size = buf.int
+        if (offsetInFile < 0 || size < 0 || offsetInFile > buf.limit() - size) return null
         buf.position(offsetInFile)
         val data = ByteArray(size)
         buf.get(data)

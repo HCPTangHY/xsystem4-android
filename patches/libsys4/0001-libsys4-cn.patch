@@ -1001,10 +1001,10 @@ index 0000000..61a50d0
 +	cg->pixels = pixels;
 +}
 diff --git a/src/utfsjis.c b/src/utfsjis.c
-index 6a312dc..6f684f3 100644
+index 6a312dc..57e6619 100644
 --- a/src/utfsjis.c
 +++ b/src/utfsjis.c
-@@ -47,13 +47,48 @@ int sjis_index(const char *_src, int index)
+@@ -47,13 +47,44 @@ int sjis_index(const char *_src, int index)
  
  #include "system4.h"
  
@@ -1046,14 +1046,10 @@ index 6a312dc..6f684f3 100644
 +			return (char*)src + 2;
 +		}
 +	}
-+	if (*src <= 0x7f) {
-+		*dst = *src;
-+		return (char*)src + 1;
-+	}
  
  	if (*src >= 0xa0 && *src <= 0xdf) {
  		*dst = 0xff60 + *src - 0xa0;
-@@ -71,7 +106,142 @@ char *sjis_char2unicode(const char *_src, int *dst)
+@@ -71,7 +102,142 @@ char *sjis_char2unicode(const char *_src, int *dst)
  	return (char*)src + 2;
  }
  
@@ -1197,7 +1193,7 @@ index 6a312dc..6f684f3 100644
  	if (!len)
  		len = strlen(_src);
  	const uint8_t *src = (uint8_t*)_src;
-@@ -80,7 +250,7 @@ char *sjis2utf(const char *_src, size_t len) {
+@@ -80,7 +246,7 @@ char *sjis2utf(const char *_src, size_t len) {
  
  	while (*src) {
  		int c;
@@ -1206,7 +1202,7 @@ index 6a312dc..6f684f3 100644
  
  		if (c <= 0x7f) {
  			*dstp++ = c;
-@@ -97,6 +267,27 @@ char *sjis2utf(const char *_src, size_t len) {
+@@ -97,6 +263,27 @@ char *sjis2utf(const char *_src, size_t len) {
  	return (char*)dst;
  }
  
@@ -1234,7 +1230,7 @@ index 6a312dc..6f684f3 100644
  static int unicode_to_sjis(int u) {
  	for (int b1 = 0x81; b1 <= 0xff; b1++) {
  		if (b1 >= 0xa0 && b1 <= 0xdf)
-@@ -109,6 +300,21 @@ static int unicode_to_sjis(int u) {
+@@ -109,6 +296,21 @@ static int unicode_to_sjis(int u) {
  	return 0;
  }
  
@@ -1256,7 +1252,7 @@ index 6a312dc..6f684f3 100644
  char *utf2sjis(const char *_src, size_t len) {
  	if (!len)
  		len = strlen(_src);
-@@ -139,6 +345,11 @@ char *utf2sjis(const char *_src, size_t len) {
+@@ -139,6 +341,11 @@ char *utf2sjis(const char *_src, size_t len) {
  			*dstp++ = u - 0xff60 + 0xa0;
  		} else {
  			int c = unicode_to_sjis(u);
@@ -1268,7 +1264,7 @@ index 6a312dc..6f684f3 100644
  			if (c) {
  				*dstp++ = c >> 8;
  				*dstp++ = c & 0xff;
-@@ -151,11 +362,52 @@ char *utf2sjis(const char *_src, size_t len) {
+@@ -151,11 +358,52 @@ char *utf2sjis(const char *_src, size_t len) {
  	return (char*)dst;
  }
  
@@ -1322,7 +1318,7 @@ index 6a312dc..6f684f3 100644
  			src++;
  		} else {
  			return true;
-@@ -183,7 +435,7 @@ int sjis_count_char(const char *_src) {
+@@ -183,7 +431,7 @@ int sjis_count_char(const char *_src) {
  	int c = 0;
  
  	while(*src) {
@@ -1331,7 +1327,7 @@ index 6a312dc..6f684f3 100644
  			src++;
  		}
  		c++; src++;
-@@ -194,7 +446,7 @@ int sjis_count_char(const char *_src) {
+@@ -194,7 +442,7 @@ int sjis_count_char(const char *_src) {
  // Replaces lowercase letters with uppercase letters and slashes with backslashes.
  void sjis_normalize_path(char *_src) {
  	for (uint8_t *src = (uint8_t*)_src; *src; src++) {

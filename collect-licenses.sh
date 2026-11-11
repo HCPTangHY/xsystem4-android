@@ -1,4 +1,5 @@
 #!/bin/sh
+set -eu
 
 build_dir=$1
 dest_dir=$2

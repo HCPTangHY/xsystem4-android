@@ -16,12 +16,11 @@ ANDROID_API_LEVEL=${ANDROID_API_LEVEL:-21}
 # build is skipped or fails, it falls back to the bundled pl_mpeg decoder
 # (MPEG-PS only) instead of breaking the build.
 FFMPEG_PREFIX=${FFMPEG_PREFIX:-${PWD}/ffmpeg}
-if [ "${SKIP_FFMPEG:-0}" != "1" ] && [ -x ./tools/build_ffmpeg_android.sh ]; then
+if [ "${SKIP_FFMPEG:-0}" != "1" ]; then
     echo "=== Building ffmpeg (movie playback) ==="
     # The engine's CMake looks for <repo>/ffmpeg/<abi>, so keep the two in sync.
     ABIS_ENV="${ABI_NAMES}" OUT_DIR="${FFMPEG_PREFIX}" ANDROID_API="${ANDROID_API_LEVEL}" \
-        ./tools/build_ffmpeg_android.sh \
-        || echo "WARNING: ffmpeg build failed; movies will be limited to MPEG-PS"
+        bash ./tools/build_ffmpeg_android.sh
 fi
 
 for abi in ${ABI_NAMES}; do

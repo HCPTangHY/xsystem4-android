@@ -93,7 +93,7 @@ data class Item(val name: String, val path: File, val homedir: File, val savedir
             val header = ByteBuffer.wrap(bytes)
             header.order(ByteOrder.LITTLE_ENDIAN)
             if (header.short.toInt() != 0 || header.short.toInt() != 1) return null
-            val count = header.short.toInt()
+            val count = minOf(header.short.toInt() and 0xffff, (bytes.size - 6) / 16)
             var best: Bitmap? = null
             var bestWidth = -1
             for (i in 0 until count) {
@@ -106,7 +106,7 @@ data class Item(val name: String, val path: File, val homedir: File, val savedir
                 header.short  // bpp
                 val size = header.int
                 val offset = header.int
-                if (size <= 0 || offset < 0 || offset + size > bytes.size) continue
+                if (size < 4 || offset < 0 || offset > bytes.size - size) continue
                 val width = if (wb == 0) 256 else wb
                 val isPng = bytes[offset] == 0x89.toByte() && bytes[offset + 1] == 0x50.toByte() &&
                         bytes[offset + 2] == 0x4E.toByte() && bytes[offset + 3] == 0x47.toByte()
@@ -209,8 +209,13 @@ data class Item(val name: String, val path: File, val homedir: File, val savedir
     }
 
     fun getIconBitmap(reqSize: Int): Bitmap? {
-        val bytes = icon?.readBytes() ?: return null
-        return decodeIco(bytes)
+        return try {
+            val bytes = icon?.readBytes() ?: return null
+            decodeIco(bytes)
+        } catch (e: Exception) {
+            Log.w("GameList", "Failed to decode icon: ${icon}", e)
+            null
+        }
     }
 }
 
@@ -440,16 +445,28 @@ class GameList(activity: Activity) {
             if (item.error != null) continue
             val oldPath = File(item.homedir, item.name)
             val files = oldPath.listFiles() ?: continue
+            var allMoved = true
             for (file in files) {
                 val newPath = File(item.path, file.name)
-                Log.i("GameList", "Moving save directory: ${file} -> ${newPath}")
                 if (newPath.exists()) {
-                    Log.w("GameList", "Removing existing save directory: ${newPath}")
-                    newPath.deleteRecursively()
+                    Log.w("GameList", "Skipping legacy save migration because target already exists: ${newPath}")
+                    allMoved = false
+                    continue
                 }
-                file.renameTo(newPath)
+                Log.i("GameList", "Moving save directory: ${file} -> ${newPath}")
+                if (!file.renameTo(newPath)) {
+                    try {
+                        file.copyRecursively(newPath, overwrite = false)
+                        file.deleteRecursively()
+                    } catch (e: Exception) {
+                        Log.e("GameList", "Failed to migrate save ${file} -> ${newPath}", e)
+                        allMoved = false
+                    }
+                }
             }
-            oldPath.deleteRecursively()
+            if (allMoved && oldPath.listFiles()?.isEmpty() == true) {
+                oldPath.delete()
+            }
         }
     }
 }

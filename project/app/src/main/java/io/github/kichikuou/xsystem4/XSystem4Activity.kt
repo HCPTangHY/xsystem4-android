@@ -306,6 +306,8 @@ class XSystem4Activity : SDLActivity() {
                     secondFingerDownY = event.getY(idx)
                     twoFingerScrolled = false
                 }
+                lastTouchX = event.getX(0)
+                lastTouchY = event.getY(0)
             }
             MotionEvent.ACTION_MOVE -> {
                 if (pointerCount > maxPointers) {
@@ -382,6 +384,9 @@ class XSystem4Activity : SDLActivity() {
                     }
                     secondFingerId = -1
                 }
+                val remIdx = if (event.actionIndex == 0 && pointerCount > 1) 1 else 0
+                lastTouchX = event.getX(remIdx)
+                lastTouchY = event.getY(remIdx)
             }
             MotionEvent.ACTION_UP -> {
                 mainHandler.removeCallbacks(longPressRunnable)
@@ -392,7 +397,7 @@ class XSystem4Activity : SDLActivity() {
                     SDLActivity.onNativeMouse(0, MotionEvent.ACTION_UP, cursorX, cursorY, false)
                     isDragging = false
                     cursorView?.dragging = false
-                } else if (maxPointers == 1 && !hasMoved && dist < 14f && duration < 320L) {
+                } else if (maxPointers == 1 && !hasMoved && dist < 14f && duration < 350L) {
                     // Strictly stationary tap = Click (Mouse only, no duplicate touch event)
                     sendClick(1)
                 }
@@ -457,6 +462,8 @@ class XSystem4Activity : SDLActivity() {
                     secondFingerDownY = event.getY(idx)
                     twoFingerScrolled = false
                 }
+                lastTouchX = event.getX(0)
+                lastTouchY = event.getY(0)
             }
             MotionEvent.ACTION_MOVE -> {
                 if (pointerCount > maxPointers) {
@@ -544,8 +551,7 @@ class XSystem4Activity : SDLActivity() {
                 if (isDragging) {
                     SDLActivity.onNativeMouse(0, MotionEvent.ACTION_UP, cursorX, cursorY, false)
                     isDragging = false
-                } else if (maxPointers == 1 && !hasMoved &&
-                    dist < 14f && duration < 320L) {
+                } else if (maxPointers == 1 && !hasMoved && dist < 14f) {
                     sendClick(1)
                 }
 
@@ -610,7 +616,7 @@ class XSystem4Activity : SDLActivity() {
             select("画面增强", modes.map { scaleLabel(it) }.toTypedArray(), anime4kScale.ordinal) {
                 anime4kScale = modes[it]
                 getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().putString(PREF_ANIME4K_SCALE, anime4kScale.name).apply()
-                try { nativeSetAnime4kMode(it) } catch (_: UnsatisfiedLinkError) { }
+                try { nativeSetAnime4kMode(it) } catch (e: UnsatisfiedLinkError) { android.util.Log.w("XSystem4", "nativeSetAnime4kMode failed", e) }
             }
         }
         row("游戏速度", gameSpeed.label) {
@@ -618,7 +624,7 @@ class XSystem4Activity : SDLActivity() {
             select("游戏速度", speeds.map { it.label }.toTypedArray(), gameSpeed.ordinal) {
                 gameSpeed = speeds[it]
                 getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().putInt(PREF_GAME_SPEED, gameSpeed.percent).apply()
-                try { nativeSetGameSpeed(gameSpeed.percent) } catch (_: UnsatisfiedLinkError) { }
+                try { nativeSetGameSpeed(gameSpeed.percent) } catch (e: UnsatisfiedLinkError) { android.util.Log.w("XSystem4", "nativeSetGameSpeed failed", e) }
             }
         }
         content.addView(Md3Ui.section(this, "工具"))

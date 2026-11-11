@@ -60,6 +60,7 @@ class GameLibraryStore(context: Context) :
 
     fun addPlayTime(path: String, elapsedMs: Long) {
         if (elapsedMs <= 0) return
+        ensureGame(path)
         // An atomic increment cannot overwrite a pin change from the launcher.
         writableDatabase.execSQL(
             "UPDATE games SET play_time_ms = play_time_ms + ? WHERE path = ?",

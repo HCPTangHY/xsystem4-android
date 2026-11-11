@@ -105,6 +105,10 @@ int run_tests(void){
  CHECK(MainEXNew_A2Int(blocks[4].name,0,0,-5,0)==7 && MainEXNew_A2Int(blocks[4].name,0,1,-5,0)==-5 && MainEXNew_A2Int(blocks[4].name,-1,0,-5,0)==-5);
  out=MainEXNew_A2String(blocks[4].name,0,1,fallback,0);CHECK(out==actual);free_string(out);
  fields[0].is_index=0;fields[1].is_index=1;CHECK(MainEXNew_GetRowAtStringKey(blocks[4].name,actual,0)==0);
+ row1[1].s=make("\\xa3\\xb0\\xa3\\xb4");
+ CHECK(MainEXNew_GetRowAtStringKey(blocks[4].name,make("\\x82\\x4f\\x82\\x53"),0)==1);
+ CHECK(MainEXFile_SA2Handle(blocks[4].val.id,make("\\x82\\x4f\\x82\\x53"),fields[0].name)==row1[0].id);
+ row1[1].s=make("stored");
  CHECK(MainEXNew_GetNodeNameCount(tree.name,0)==1 && MainEXNew_GetEXNameCount(tree.name,0)==2);
  struct page *names=NULL;CHECK(MainEXNew_GetNodeNameList(tree.name,&names,0)&&names->nr_vars==1);
  CHECK(!strcmp(heap[names->values[0].i].s->text,"branch")&&children[0].name->ref==2);

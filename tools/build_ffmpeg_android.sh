@@ -335,14 +335,15 @@ verify_abi() {
 	local syms
 	syms="$("$NM" --defined-only "$lib/libavcodec.a" 2>/dev/null || true)"
 	for s in ff_wmv1_decoder ff_wmv2_decoder ff_wmav2_decoder; do
-		if printf '%s\n' "$syms" | grep -q " $s\$"; then
+		if grep " $s\$" <<<"$syms" >/dev/null; then
 			printf '    OK   %s\n' "$s"
 		else
 			printf '    FAIL %s missing from libavcodec.a\n' "$s"; ok=0
 		fi
 	done
-	if printf '%s\n' "$("$NM" --defined-only "$lib/libavformat.a" 2>/dev/null || true)" \
-		| grep -q ' ff_asf_demuxer$'; then
+	local fmt_syms
+	fmt_syms="$("$NM" --defined-only "$lib/libavformat.a" 2>/dev/null || true)"
+	if grep ' ff_asf_demuxer$' <<<"$fmt_syms" >/dev/null; then
 		printf '    OK   ff_asf_demuxer\n'
 	else
 		printf '    FAIL ff_asf_demuxer missing from libavformat.a\n'; ok=0

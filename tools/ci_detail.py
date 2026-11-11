@@ -18,10 +18,6 @@ for j in cr["jobs"]:
     print("job:", j["name"], "| conclusion:", j["conclusion"], "| started:", j["started_at"])
     print("  runner:", j.get("runner_name"), j.get("runner_group_name"))
 # annotations
-try:
-    ann = api("/actions/runs/%d/annotations" % rid) if False else None
-except Exception as e:
-    pass
 # check-run annotations
 checks = api("/commits/" + run["head_sha"] + "/check-runs")
 for c in checks.get("check_runs", []):
