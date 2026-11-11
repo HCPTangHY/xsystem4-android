@@ -20,7 +20,9 @@ import java.io.InputStream
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.nio.charset.CharacterCodingException
 import java.nio.charset.Charset
+import java.nio.charset.CodingErrorAction
 import java.util.zip.ZipInputStream
 
 interface GameListObserver {
@@ -49,22 +51,17 @@ data class Item(val name: String, val path: File, val homedir: File, val savedir
             }
             val icon = findIcon(dir)
             val ini = System40Ini.parse(iniFile)
-            if (ini.gameName == null) {
-                val err = context.getString(R.string.toast_no_GameName, iniFile.path)
-                Log.w("GameList", err)
-                return Item(dir.name, dir, homedir, null, icon, err)
-            }
             val savedir = File(dir, ini.SaveFolder ?: "SaveData")
-            return Item(ini.gameName, dir, homedir, savedir, icon, null)
+            // CN: display the folder name so users can freely rename games
+            // (ini GameName encoding varies between CN patches).
+            return Item(dir.name, dir, homedir, savedir, icon, null)
         }
 
         private fun findIcon(dir: File): File? {
-            dir.listFiles()?.forEach {
-                if (it.extension == "ico") { return it }
-            }
+            // Prefer the icon embedded in the game exe.
             try {
                 dir.listFiles { file ->
-                    file.extension == "exe" &&
+                    file.extension.equals("exe", ignoreCase = true) &&
                             file.name != "OpenSaveFolder.exe" &&
                             file.name != "ResetConfig.exe" &&
                             file.name != "Uninstaller.exe"
@@ -78,37 +75,142 @@ data class Item(val name: String, val path: File, val homedir: File, val savedir
             } catch (e: Exception) {
                 Log.e("GameList", "Failed to extract or write icon", e)
             }
+            // Fall back to a standalone .ico shipped with the game
+            // (skip our own cache file).
+            dir.listFiles()?.forEach {
+                if (it.extension.equals("ico", ignoreCase = true) && !it.name.startsWith(".")) {
+                    return it
+                }
+            }
             return null
+        }
+
+        // BitmapFactory doesn't support the ICO container format, so icons
+        // extracted from game exes never decoded. Parse ICO manually instead:
+        // each entry is either an embedded PNG or a bottom-up BMP.
+        private fun decodeIco(bytes: ByteArray): Bitmap? {
+            if (bytes.size < 22) return null
+            val header = ByteBuffer.wrap(bytes)
+            header.order(ByteOrder.LITTLE_ENDIAN)
+            if (header.short.toInt() != 0 || header.short.toInt() != 1) return null
+            val count = header.short.toInt()
+            var best: Bitmap? = null
+            var bestWidth = -1
+            for (i in 0 until count) {
+                header.position(6 + i * 16)
+                val wb = header.get().toInt()
+                header.get() // height
+                header.get() // color count
+                header.get() // reserved
+                header.short  // planes
+                header.short  // bpp
+                val size = header.int
+                val offset = header.int
+                if (size <= 0 || offset < 0 || offset + size > bytes.size) continue
+                val width = if (wb == 0) 256 else wb
+                val isPng = bytes[offset] == 0x89.toByte() && bytes[offset + 1] == 0x50.toByte() &&
+                        bytes[offset + 2] == 0x4E.toByte() && bytes[offset + 3] == 0x47.toByte()
+                val bmp = if (isPng) {
+                    BitmapFactory.decodeByteArray(bytes, offset, size)
+                } else {
+                    decodeIcoBmpEntry(bytes, offset)
+                }
+                if (bmp != null && width > bestWidth) {
+                    bestWidth = width
+                    best = bmp
+                }
+            }
+            return best
+        }
+
+        private fun decodeIcoBmpEntry(bytes: ByteArray, offset: Int): Bitmap? {
+            val buf = ByteBuffer.wrap(bytes, offset, bytes.size - offset)
+            buf.order(ByteOrder.LITTLE_ENDIAN)
+            val headerSize = buf.int
+            if (headerSize < 40 || headerSize > bytes.size - offset) return null
+            val w = buf.int
+            val h2 = buf.int
+            val height = h2 / 2
+            if (w <= 0 || height <= 0) return null
+            buf.short // planes
+            val bpp = buf.short.toInt()
+            val compression = buf.int
+            if (compression != 0) return null
+            if (bpp != 1 && bpp != 4 && bpp != 8 && bpp != 24 && bpp != 32) return null
+
+            // Palette for indexed icons (bpp <= 8): RGBQUAD table after the header.
+            var palette: IntArray? = null
+            if (bpp <= 8) {
+                val numColors = 1 shl bpp
+                val paletteStart = offset + headerSize
+                if (paletteStart + numColors * 4 > bytes.size) return null
+                palette = IntArray(numColors) { i ->
+                    val p = paletteStart + i * 4
+                    val b = bytes[p].toInt() and 0xff
+                    val g = bytes[p + 1].toInt() and 0xff
+                    val r = bytes[p + 2].toInt() and 0xff
+                    (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+                }
+            }
+
+            val bytesPerRow = ((bpp * w + 31) / 32) * 4
+            val pixelsStart = offset + headerSize + (if (bpp <= 8) (1 shl bpp) * 4 else 0)
+            if (pixelsStart + height * bytesPerRow > bytes.size) return null
+
+            // Optional AND mask (1bpp) after the pixel data: set bit = transparent.
+            val andRowBytes = (w + 31) / 32 * 4
+            val andStart = pixelsStart + height * bytesPerRow
+            val hasAndMask = andStart + height * andRowBytes <= bytes.size
+
+            val pixels = IntArray(w * height)
+            for (y in 0 until height) {
+                val rowStart = pixelsStart + (height - 1 - y) * bytesPerRow
+                for (x in 0 until w) {
+                    pixels[y * w + x] = when (bpp) {
+                        32 -> {
+                            val p = rowStart + x * 4
+                            val b = bytes[p].toInt() and 0xff
+                            val g = bytes[p + 1].toInt() and 0xff
+                            val r = bytes[p + 2].toInt() and 0xff
+                            val a = bytes[p + 3].toInt() and 0xff
+                            (a shl 24) or (r shl 16) or (g shl 8) or b
+                        }
+                        24 -> {
+                            val p = rowStart + x * 3
+                            val b = bytes[p].toInt() and 0xff
+                            val g = bytes[p + 1].toInt() and 0xff
+                            val r = bytes[p + 2].toInt() and 0xff
+                            (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+                        }
+                        8 -> palette!![bytes[rowStart + x].toInt() and 0xff]
+                        4 -> {
+                            val v = bytes[rowStart + x / 2].toInt()
+                            val nibble = if (x % 2 == 0) (v shr 4) and 0x0f else v and 0x0f
+                            palette!![nibble]
+                        }
+                        else -> { // 1
+                            val v = bytes[rowStart + x / 8].toInt()
+                            palette!![(v shr (7 - x % 8)) and 1]
+                        }
+                    }
+                }
+                if (hasAndMask && bpp != 32) {
+                    val andRow = andStart + (height - 1 - y) * andRowBytes
+                    for (x in 0 until w) {
+                        val v = bytes[andRow + x / 8].toInt()
+                        if (((v shr (7 - x % 8)) and 1) == 1) {
+                            pixels[y * w + x] = 0
+                        }
+                    }
+                }
+            }
+            return Bitmap.createBitmap(pixels, w, height, Bitmap.Config.ARGB_8888)
         }
     }
 
     fun getIconBitmap(reqSize: Int): Bitmap? {
         val bytes = icon?.readBytes() ?: return null
-        val buf = ByteBuffer.wrap(bytes)
-        buf.order(ByteOrder.LITTLE_ENDIAN)
-        buf.skip(4)
-        val numIcons = buf.short.toInt()
-
-        // If the icon contains multiple images, convert it to an icon containing only the image
-        // closest to the requested size.
-        if (numIcons > 1) {
-            val bestMatchEntry = Array(numIcons) {
-                val entryBytes = ByteArray(16)
-                buf.get(entryBytes)
-                entryBytes
-            }.minWith(compareBy({
-                // Compare the sizes first,
-                val width = if (it[0].toInt() == 0) 256 else it[0].toInt()
-                kotlin.math.abs(width - reqSize)
-            }, {
-                // then pick the one with the highest number of bits per pixel.
-                -it[6]
-            }))
-            buf.position(4)
-            buf.putShort(1)
-            buf.put(bestMatchEntry)
-        }
-        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        return decodeIco(bytes)
     }
 }
 
@@ -118,7 +220,7 @@ data class System40Ini(val gameName: String?, val SaveFolder: String?) {
             val regex = Regex("""(\w+)\s*=\s*"(.*)"""")
             var gameName: String? = null
             var SaveFolder: String? = null
-            for (line in file.readLines(Charset.forName("Shift_JIS"))) {
+            for (line in decodeIniBytes(file.readBytes()).lineSequence()) {
                 regex.matchEntire(line)?.let {
                     when (it.groupValues[1]) {
                         "GameName" -> gameName = it.groupValues[2]
@@ -127,6 +229,45 @@ data class System40Ini(val gameName: String?, val SaveFolder: String?) {
                 }
             }
             return System40Ini(gameName, SaveFolder)
+        }
+
+        // CN games ship GBK-encoded ini files (the JP comments are re-encoded
+        // to GBK too, so SJIS parsing mojibakes the Chinese game name).
+        // Decode GBK first; if the result contains several chars from the
+        // SJIS-kana-misread-through-GBK mojibake set, it's actually a JP file.
+        private val SJIS_KANA_MOJIBAKE =
+            "丄丅丒丠両丣並丱丵丷丼乀乁乆乊乑乕乣乽乿亀亁偀偁偂偄偅偆偉偊偋偍偐偑偒偓偔偖偗偘偙偛偝偞偟偠偡偢偣偤偦偧偨偩偪偫偭偮偯偰偱偲偳側偵偸偹偺偼偽傁傂傃傄傆傇傉傊傋傌傎傏傐傑傒傓傔傕傖傗傘備傚傛傜傝傞傟傠傡傢傤傦傪傫傽傾傿僀僁僂僃僄僅僆僇僈僉僊僋僌働僎僐僑僒僓僔僕僗僘僙僛僜僝僞僟僠僡僢僣僤僥僨僩僪僫僯僰僱僲僴僶僷僸價僺僼僽僾僿儀儁儂儃億儅儈儉儊儌儍儎儏儐儑儓儔儕儖儗儘儙儚儛儜儝儞償儠儢"
+
+        private fun decodeIniBytes(bytes: ByteArray): String {
+            val sjis = Charset.forName("Shift_JIS")
+            val gbkCs = Charset.forName("GBK")
+            fun decodeStrict(cs: Charset, b: ByteArray): String? = try {
+                cs.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(b)).toString()
+            } catch (e: CharacterCodingException) {
+                null
+            }
+            // CN ini files mix encodings: GBK game name lines + possibly
+            // SJIS JP comment lines (older CN patches kept JP comments in
+            // SJIS, which decode through GBK into kana-mojibake). Decide the
+            // encoding PER LINE so both decode correctly.
+            return String(bytes, Charsets.ISO_8859_1).split('\n').joinToString("\n") { isoLine ->
+                var line = isoLine.toByteArray(Charsets.ISO_8859_1)
+                if (line.isNotEmpty() && line.last() == 0x0d.toByte()) {
+                    line = line.copyOf(line.size - 1)
+                }
+                if (line.isEmpty()) {
+                    return@joinToString ""
+                }
+                val gbk = decodeStrict(gbkCs, line)
+                if (gbk != null && gbk.count { SJIS_KANA_MOJIBAKE.contains(it) } < 2) {
+                    gbk
+                } else {
+                    decodeStrict(sjis, line) ?: String(line, sjis)
+                }
+            }
         }
     }
 }

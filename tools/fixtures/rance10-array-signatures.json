@@ -1,0 +1,1546 @@
+{
+  "source": "Rance10.ain HLL0 Array declarations and decoded CALLHLL sites",
+  "ain_version": 12,
+  "functions": [
+    {
+      "index": 0,
+      "name": "Alloc",
+      "result": 0,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Numof",
+          "type": 10
+        },
+        {
+          "name": "Numof2",
+          "type": 10
+        },
+        {
+          "name": "Numof3",
+          "type": 10
+        },
+        {
+          "name": "Numof4",
+          "type": 10
+        }
+      ],
+      "call_count": 634,
+      "element_types": [
+        10,
+        11,
+        12,
+        13,
+        21,
+        47,
+        79,
+        89,
+        92
+      ]
+    },
+    {
+      "index": 1,
+      "name": "Realloc",
+      "result": 0,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Numof",
+          "type": 10
+        }
+      ],
+      "call_count": 58,
+      "element_types": [
+        10,
+        12,
+        13,
+        21,
+        47,
+        79,
+        92
+      ]
+    },
+    {
+      "index": 2,
+      "name": "Realloc",
+      "result": 0,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Numof",
+          "type": 10
+        },
+        {
+          "name": "Value",
+          "type": 74
+        }
+      ],
+      "call_count": 0,
+      "element_types": []
+    },
+    {
+      "index": 3,
+      "name": "Duplicate",
+      "result": 0,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Src",
+          "type": 80
+        }
+      ],
+      "call_count": 13,
+      "element_types": [
+        10,
+        11,
+        12,
+        13,
+        21
+      ]
+    },
+    {
+      "index": 4,
+      "name": "ShallowCopy",
+      "result": 79,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        }
+      ],
+      "call_count": 0,
+      "element_types": []
+    },
+    {
+      "index": 5,
+      "name": "ShallowCopy",
+      "result": 79,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        }
+      ],
+      "call_count": 56,
+      "element_types": [
+        13,
+        21
+      ]
+    },
+    {
+      "index": 6,
+      "name": "Free",
+      "result": 0,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        }
+      ],
+      "call_count": 904,
+      "element_types": [
+        10,
+        11,
+        12,
+        13,
+        21,
+        47,
+        79,
+        89,
+        92
+      ]
+    },
+    {
+      "index": 7,
+      "name": "PushBack",
+      "result": 0,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Value",
+          "type": 74
+        }
+      ],
+      "call_count": 1609,
+      "element_types": [
+        10,
+        11,
+        12,
+        13,
+        21,
+        47,
+        89,
+        92
+      ]
+    },
+    {
+      "index": 8,
+      "name": "PopBack",
+      "result": 0,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        }
+      ],
+      "call_count": 23,
+      "element_types": [
+        10,
+        12,
+        13,
+        21,
+        47,
+        79
+      ]
+    },
+    {
+      "index": 9,
+      "name": "EmplaceBack",
+      "result": 75,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        }
+      ],
+      "call_count": 19,
+      "element_types": [
+        13,
+        47
+      ]
+    },
+    {
+      "index": 10,
+      "name": "Concat",
+      "result": 0,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Src",
+          "type": 80
+        }
+      ],
+      "call_count": 56,
+      "element_types": [
+        10,
+        12,
+        13,
+        21,
+        89
+      ]
+    },
+    {
+      "index": 11,
+      "name": "Insert",
+      "result": 0,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Index",
+          "type": 10
+        },
+        {
+          "name": "Value",
+          "type": 74
+        }
+      ],
+      "call_count": 41,
+      "element_types": [
+        10,
+        12,
+        13,
+        21,
+        89
+      ]
+    },
+    {
+      "index": 12,
+      "name": "Erase",
+      "result": 47,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Index",
+          "type": 10
+        }
+      ],
+      "call_count": 78,
+      "element_types": [
+        10,
+        11,
+        12,
+        13,
+        21,
+        89,
+        92
+      ]
+    },
+    {
+      "index": 13,
+      "name": "Erase",
+      "result": 47,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Func",
+          "type": 95
+        }
+      ],
+      "call_count": 41,
+      "element_types": [
+        10,
+        12,
+        13,
+        21,
+        89
+      ]
+    },
+    {
+      "index": 14,
+      "name": "Erase",
+      "result": 47,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Src",
+          "type": 80
+        }
+      ],
+      "call_count": 6,
+      "element_types": [
+        10,
+        12
+      ]
+    },
+    {
+      "index": 15,
+      "name": "EraseAll",
+      "result": 47,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Func",
+          "type": 95
+        }
+      ],
+      "call_count": 54,
+      "element_types": [
+        10,
+        12,
+        13,
+        21,
+        89
+      ]
+    },
+    {
+      "index": 16,
+      "name": "Remain",
+      "result": 80,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Func",
+          "type": 95
+        }
+      ],
+      "call_count": 0,
+      "element_types": []
+    },
+    {
+      "index": 17,
+      "name": "Numof",
+      "result": 10,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        }
+      ],
+      "call_count": 1821,
+      "element_types": [
+        10,
+        11,
+        12,
+        13,
+        21,
+        47,
+        79,
+        89,
+        92
+      ]
+    },
+    {
+      "index": 18,
+      "name": "Numof",
+      "result": 10,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Func",
+          "type": 95
+        }
+      ],
+      "call_count": 13,
+      "element_types": [
+        12,
+        13,
+        21,
+        89
+      ]
+    },
+    {
+      "index": 19,
+      "name": "Empty",
+      "result": 47,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        }
+      ],
+      "call_count": 154,
+      "element_types": [
+        10,
+        11,
+        12,
+        13,
+        21,
+        47,
+        79,
+        89,
+        92
+      ]
+    },
+    {
+      "index": 20,
+      "name": "All",
+      "result": 47,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Func",
+          "type": 95
+        }
+      ],
+      "call_count": 6,
+      "element_types": [
+        12,
+        21,
+        47
+      ]
+    },
+    {
+      "index": 21,
+      "name": "Any",
+      "result": 47,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        }
+      ],
+      "call_count": 33,
+      "element_types": [
+        10,
+        12,
+        13,
+        21,
+        89,
+        92
+      ]
+    },
+    {
+      "index": 22,
+      "name": "Any",
+      "result": 47,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Func",
+          "type": 95
+        }
+      ],
+      "call_count": 47,
+      "element_types": [
+        10,
+        12,
+        13,
+        21,
+        47
+      ]
+    },
+    {
+      "index": 23,
+      "name": "Fill",
+      "result": 10,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Value",
+          "type": 74
+        }
+      ],
+      "call_count": 7,
+      "element_types": [
+        10,
+        11,
+        12,
+        47
+      ]
+    },
+    {
+      "index": 24,
+      "name": "Fill",
+      "result": 10,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Index",
+          "type": 10
+        },
+        {
+          "name": "Length",
+          "type": 10
+        },
+        {
+          "name": "Value",
+          "type": 74
+        }
+      ],
+      "call_count": 4,
+      "element_types": [
+        10,
+        12,
+        47
+      ]
+    },
+    {
+      "index": 25,
+      "name": "Copy",
+      "result": 10,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Src",
+          "type": 80
+        }
+      ],
+      "call_count": 0,
+      "element_types": []
+    },
+    {
+      "index": 26,
+      "name": "Copy",
+      "result": 10,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "DestIndex",
+          "type": 10
+        },
+        {
+          "name": "Src",
+          "type": 80
+        }
+      ],
+      "call_count": 0,
+      "element_types": []
+    },
+    {
+      "index": 27,
+      "name": "Copy",
+      "result": 10,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Src",
+          "type": 80
+        },
+        {
+          "name": "SrcIndex",
+          "type": 10
+        },
+        {
+          "name": "Length",
+          "type": 10
+        }
+      ],
+      "call_count": 0,
+      "element_types": []
+    },
+    {
+      "index": 28,
+      "name": "Copy",
+      "result": 10,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "DestIndex",
+          "type": 10
+        },
+        {
+          "name": "Src",
+          "type": 80
+        },
+        {
+          "name": "SrcIndex",
+          "type": 10
+        },
+        {
+          "name": "Length",
+          "type": 10
+        }
+      ],
+      "call_count": 7,
+      "element_types": [
+        12,
+        13,
+        21
+      ]
+    },
+    {
+      "index": 29,
+      "name": "Sort",
+      "result": 80,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Func",
+          "type": 95
+        }
+      ],
+      "call_count": 23,
+      "element_types": [
+        10,
+        12,
+        13,
+        21
+      ]
+    },
+    {
+      "index": 30,
+      "name": "Sort",
+      "result": 80,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        }
+      ],
+      "call_count": 20,
+      "element_types": [
+        10,
+        12
+      ]
+    },
+    {
+      "index": 31,
+      "name": "AscSort",
+      "result": 80,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        }
+      ],
+      "call_count": 1,
+      "element_types": [
+        10
+      ]
+    },
+    {
+      "index": 32,
+      "name": "DescSort",
+      "result": 80,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        }
+      ],
+      "call_count": 0,
+      "element_types": []
+    },
+    {
+      "index": 33,
+      "name": "QuickSort",
+      "result": 80,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        }
+      ],
+      "call_count": 0,
+      "element_types": []
+    },
+    {
+      "index": 34,
+      "name": "QuickSort",
+      "result": 80,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Func",
+          "type": 95
+        }
+      ],
+      "call_count": 18,
+      "element_types": [
+        10,
+        13,
+        21,
+        89
+      ]
+    },
+    {
+      "index": 35,
+      "name": "Find",
+      "result": 10,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Search",
+          "type": 74
+        }
+      ],
+      "call_count": 25,
+      "element_types": [
+        10,
+        12,
+        47
+      ]
+    },
+    {
+      "index": 36,
+      "name": "FindLast",
+      "result": 10,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Search",
+          "type": 74
+        }
+      ],
+      "call_count": 0,
+      "element_types": []
+    },
+    {
+      "index": 37,
+      "name": "Find",
+      "result": 10,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Begin",
+          "type": 10
+        },
+        {
+          "name": "End",
+          "type": 10
+        },
+        {
+          "name": "Search",
+          "type": 74
+        }
+      ],
+      "call_count": 18,
+      "element_types": [
+        10,
+        12
+      ]
+    },
+    {
+      "index": 38,
+      "name": "FindLast",
+      "result": 10,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Begin",
+          "type": 10
+        },
+        {
+          "name": "End",
+          "type": 10
+        },
+        {
+          "name": "Search",
+          "type": 74
+        }
+      ],
+      "call_count": 0,
+      "element_types": []
+    },
+    {
+      "index": 39,
+      "name": "Find",
+      "result": 10,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Func",
+          "type": 95
+        }
+      ],
+      "call_count": 87,
+      "element_types": [
+        10,
+        12,
+        13,
+        21,
+        47,
+        89
+      ]
+    },
+    {
+      "index": 40,
+      "name": "FindLast",
+      "result": 10,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Func",
+          "type": 95
+        }
+      ],
+      "call_count": 1,
+      "element_types": [
+        21
+      ]
+    },
+    {
+      "index": 41,
+      "name": "Find",
+      "result": 10,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Begin",
+          "type": 10
+        },
+        {
+          "name": "End",
+          "type": 10
+        },
+        {
+          "name": "Func",
+          "type": 95
+        }
+      ],
+      "call_count": 1,
+      "element_types": [
+        21
+      ]
+    },
+    {
+      "index": 42,
+      "name": "FindLast",
+      "result": 10,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Begin",
+          "type": 10
+        },
+        {
+          "name": "End",
+          "type": 10
+        },
+        {
+          "name": "Func",
+          "type": 95
+        }
+      ],
+      "call_count": 0,
+      "element_types": []
+    },
+    {
+      "index": 43,
+      "name": "LowerBound",
+      "result": 10,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Search",
+          "type": 74
+        }
+      ],
+      "call_count": 2,
+      "element_types": [
+        10
+      ]
+    },
+    {
+      "index": 44,
+      "name": "LowerBound",
+      "result": 10,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Func",
+          "type": 95
+        }
+      ],
+      "call_count": 11,
+      "element_types": [
+        12,
+        13,
+        89
+      ]
+    },
+    {
+      "index": 45,
+      "name": "UpperBound",
+      "result": 10,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Search",
+          "type": 74
+        }
+      ],
+      "call_count": 0,
+      "element_types": []
+    },
+    {
+      "index": 46,
+      "name": "UpperBound",
+      "result": 10,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Func",
+          "type": 95
+        }
+      ],
+      "call_count": 0,
+      "element_types": []
+    },
+    {
+      "index": 47,
+      "name": "BinarySearch",
+      "result": 10,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Search",
+          "type": 74
+        }
+      ],
+      "call_count": 1,
+      "element_types": [
+        12
+      ]
+    },
+    {
+      "index": 48,
+      "name": "BinarySearch",
+      "result": 10,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Func",
+          "type": 95
+        }
+      ],
+      "call_count": 9,
+      "element_types": [
+        12,
+        13
+      ]
+    },
+    {
+      "index": 49,
+      "name": "IsExist",
+      "result": 47,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Search",
+          "type": 74
+        }
+      ],
+      "call_count": 31,
+      "element_types": [
+        10,
+        12
+      ]
+    },
+    {
+      "index": 50,
+      "name": "IsExist",
+      "result": 47,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Func",
+          "type": 95
+        }
+      ],
+      "call_count": 34,
+      "element_types": [
+        10,
+        12,
+        13,
+        21,
+        47
+      ]
+    },
+    {
+      "index": 51,
+      "name": "Where",
+      "result": 79,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Func",
+          "type": 95
+        }
+      ],
+      "call_count": 75,
+      "element_types": [
+        10,
+        12,
+        13,
+        21,
+        89
+      ]
+    },
+    {
+      "index": 52,
+      "name": "Reverse",
+      "result": 0,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        }
+      ],
+      "call_count": 5,
+      "element_types": [
+        12,
+        13,
+        21
+      ]
+    },
+    {
+      "index": 53,
+      "name": "Shuffle",
+      "result": 0,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Seed",
+          "type": 10
+        }
+      ],
+      "call_count": 25,
+      "element_types": [
+        10,
+        12,
+        13,
+        21,
+        92
+      ]
+    },
+    {
+      "index": 54,
+      "name": "Unique",
+      "result": 0,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        }
+      ],
+      "call_count": 12,
+      "element_types": [
+        10,
+        12
+      ]
+    },
+    {
+      "index": 55,
+      "name": "Unique",
+      "result": 0,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Func",
+          "type": 95
+        }
+      ],
+      "call_count": 0,
+      "element_types": []
+    },
+    {
+      "index": 56,
+      "name": "At",
+      "result": 75,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Index",
+          "type": 10
+        }
+      ],
+      "call_count": 0,
+      "element_types": []
+    },
+    {
+      "index": 57,
+      "name": "At",
+      "result": 75,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Index",
+          "type": 10
+        }
+      ],
+      "call_count": 250,
+      "element_types": [
+        10,
+        12,
+        13,
+        21,
+        47,
+        89,
+        92
+      ]
+    },
+    {
+      "index": 58,
+      "name": "First",
+      "result": 75,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        }
+      ],
+      "call_count": 0,
+      "element_types": []
+    },
+    {
+      "index": 59,
+      "name": "First",
+      "result": 75,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        }
+      ],
+      "call_count": 17,
+      "element_types": [
+        10,
+        12,
+        13,
+        21,
+        89
+      ]
+    },
+    {
+      "index": 60,
+      "name": "First",
+      "result": 75,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Func",
+          "type": 95
+        }
+      ],
+      "call_count": 0,
+      "element_types": []
+    },
+    {
+      "index": 61,
+      "name": "First",
+      "result": 75,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Func",
+          "type": 95
+        }
+      ],
+      "call_count": 58,
+      "element_types": [
+        10,
+        12,
+        13,
+        21,
+        89
+      ]
+    },
+    {
+      "index": 62,
+      "name": "Last",
+      "result": 75,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        }
+      ],
+      "call_count": 0,
+      "element_types": []
+    },
+    {
+      "index": 63,
+      "name": "Last",
+      "result": 75,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        }
+      ],
+      "call_count": 95,
+      "element_types": [
+        10,
+        12,
+        13,
+        21,
+        47,
+        89
+      ]
+    },
+    {
+      "index": 64,
+      "name": "Last",
+      "result": 75,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Func",
+          "type": 95
+        }
+      ],
+      "call_count": 0,
+      "element_types": []
+    },
+    {
+      "index": 65,
+      "name": "Last",
+      "result": 75,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Func",
+          "type": 95
+        }
+      ],
+      "call_count": 1,
+      "element_types": [
+        10
+      ]
+    },
+    {
+      "index": 66,
+      "name": "Min",
+      "result": 75,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        }
+      ],
+      "call_count": 0,
+      "element_types": []
+    },
+    {
+      "index": 67,
+      "name": "Min",
+      "result": 75,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        }
+      ],
+      "call_count": 0,
+      "element_types": []
+    },
+    {
+      "index": 68,
+      "name": "Min",
+      "result": 75,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Func",
+          "type": 95
+        }
+      ],
+      "call_count": 0,
+      "element_types": []
+    },
+    {
+      "index": 69,
+      "name": "Min",
+      "result": 75,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Func",
+          "type": 95
+        }
+      ],
+      "call_count": 2,
+      "element_types": [
+        13
+      ]
+    },
+    {
+      "index": 70,
+      "name": "Max",
+      "result": 75,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        }
+      ],
+      "call_count": 0,
+      "element_types": []
+    },
+    {
+      "index": 71,
+      "name": "Max",
+      "result": 75,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        }
+      ],
+      "call_count": 3,
+      "element_types": [
+        10
+      ]
+    },
+    {
+      "index": 72,
+      "name": "Max",
+      "result": 75,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Func",
+          "type": 95
+        }
+      ],
+      "call_count": 0,
+      "element_types": []
+    },
+    {
+      "index": 73,
+      "name": "Max",
+      "result": 75,
+      "arguments": [
+        {
+          "name": "self",
+          "type": 80
+        },
+        {
+          "name": "Func",
+          "type": 95
+        }
+      ],
+      "call_count": 7,
+      "element_types": [
+        13,
+        21
+      ]
+    }
+  ],
+  "erase_array_sites": [
+    {
+      "address": "0xf92ba",
+      "function": 3653,
+      "type": 10
+    },
+    {
+      "address": "0x3a4e28",
+      "function": 24514,
+      "type": 10
+    },
+    {
+      "address": "0x43b86e",
+      "function": 27571,
+      "type": 12
+    },
+    {
+      "address": "0x468786",
+      "function": 37563,
+      "type": 12
+    },
+    {
+      "address": "0x46b9a4",
+      "function": 29020,
+      "type": 12
+    },
+    {
+      "address": "0x46b9d6",
+      "function": 29021,
+      "type": 10
+    }
+  ]
+}

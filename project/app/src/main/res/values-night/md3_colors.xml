@@ -1,0 +1,12 @@
+<resources>
+    <color name="md3_surface">#141414</color>
+    <color name="md3_container">#202020</color>
+    <color name="md3_container_high">#303030</color>
+    <color name="md3_on_surface">#E5E3E0</color>
+    <color name="md3_on_surface_variant">#C8C6C3</color>
+    <color name="md3_primary">#C6C6C6</color>
+    <color name="md3_on_primary">#292929</color>
+    <color name="md3_secondary_container">#3F3F3F</color>
+    <color name="md3_on_secondary_container">#E6E6E6</color>
+    <color name="md3_outline_variant">#484846</color>
+</resources>

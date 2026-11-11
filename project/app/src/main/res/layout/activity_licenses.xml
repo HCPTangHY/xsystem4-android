@@ -1,9 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent">
-    <TextView android:id="@+id/license_text"
-        android:layout_width="fill_parent"
-        android:layout_height="wrap_content"
-        android:padding="20dp" />
-</ScrollView>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:orientation="vertical" android:background="?attr/colorSurface"
+    android:layout_width="match_parent" android:layout_height="match_parent">
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/toolbar" android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize" app:titleTextAppearance="?attr/textAppearanceTitleLarge"
+        app:navigationIcon="@drawable/ic_arrow_back_24"
+        app:navigationIconTint="?attr/colorOnSurface"
+        app:navigationContentDescription="@string/md3_back" />
+    <TextView android:text="@string/md3_license_original" android:textAppearance="?attr/textAppearanceLabelLarge"
+        android:textColor="?attr/colorOnSurfaceVariant" android:paddingLeft="24dp"
+        android:paddingRight="24dp" android:paddingTop="8dp" android:paddingBottom="16dp"
+        android:layout_width="match_parent" android:layout_height="wrap_content" />
+    <androidx.core.widget.NestedScrollView android:clipToPadding="false"
+        android:paddingLeft="16dp" android:paddingRight="16dp" android:paddingBottom="24dp"
+        android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
+        <com.google.android.material.card.MaterialCardView
+            style="@style/Widget.Material3.CardView.Filled"
+            app:cardBackgroundColor="?attr/colorSurfaceContainer"
+            android:layout_width="match_parent" android:layout_height="wrap_content">
+            <TextView android:id="@+id/license_text"
+                android:textAppearance="?attr/textAppearanceBodyMedium" android:textColor="?attr/colorOnSurface"
+                android:textIsSelectable="true" android:lineSpacingExtra="4dp" android:padding="20dp"
+                android:layout_width="match_parent" android:layout_height="wrap_content" />
+        </com.google.android.material.card.MaterialCardView>
+    </androidx.core.widget.NestedScrollView>
+</LinearLayout>

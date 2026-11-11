@@ -1,12 +1,16 @@
 package io.github.kichikuou.xsystem4
 
-import android.app.Activity
+import androidx.appcompat.app.AppCompatActivity
 import android.content.Intent
 import android.os.Bundle
+import android.view.View
+import android.view.ViewGroup
+import android.widget.BaseAdapter
 import android.widget.ListView
-import android.widget.SimpleAdapter
+import android.widget.TextView
+import com.google.android.material.appbar.MaterialToolbar
 
-class LicensesMenuActivity : Activity() {
+class LicensesMenuActivity : AppCompatActivity() {
     class Entry(val displayName: String, val fileName: String, val url: String)
     private val entries: ArrayList<Entry> = arrayListOf(
         Entry("xsystem4", "xsystem4", "https://github.com/nunuhara/xsystem4"),
@@ -29,17 +33,27 @@ class LicensesMenuActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_licenses_menu)
-
-        val items = entries.map { mapOf("name" to it.displayName, "url" to it.url)}
+        findViewById<MaterialToolbar>(R.id.toolbar).setNavigationOnClickListener { finish() }
         val listView = findViewById<ListView>(R.id.list)
-        listView.adapter = SimpleAdapter(this, items, android.R.layout.simple_list_item_2,
-            arrayOf("name", "url"), intArrayOf(android.R.id.text1, android.R.id.text2))
-        listView.setOnItemClickListener { _, _, pos, _ ->
-            val intent = Intent(this, LicensesActivity::class.java).apply {
-                putExtra(LicensesActivity.EXTRA_DISPLAY_NAME, entries[pos].displayName)
-                putExtra(LicensesActivity.EXTRA_FILE_NAME, entries[pos].fileName)
+        listView.setItemsCanFocus(true)
+        listView.adapter = object : BaseAdapter() {
+            override fun getCount() = entries.size
+            override fun getItem(position: Int) = entries[position]
+            override fun getItemId(position: Int) = position.toLong()
+
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View {
+                val entry = getItem(position)
+                val view = convertView ?: layoutInflater.inflate(R.layout.license_item, parent, false)
+                view.findViewById<TextView>(R.id.title).text = entry.displayName
+                view.findViewById<TextView>(R.id.subtitle).text = entry.url
+                view.setOnClickListener {
+                    startActivity(Intent(this@LicensesMenuActivity, LicensesActivity::class.java).apply {
+                        putExtra(LicensesActivity.EXTRA_DISPLAY_NAME, entry.displayName)
+                        putExtra(LicensesActivity.EXTRA_FILE_NAME, entry.fileName)
+                    })
+                }
+                return view
             }
-            startActivity(intent)
         }
     }
 }

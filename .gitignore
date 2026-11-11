@@ -1,4 +1,5 @@
 /build/
+/ffmpeg/
 /project/keystore.jks
 /project/app/build/
 /project/app/src/main/assets/
@@ -6,3 +7,4 @@
 /project/local.properties
 .gradle
 .idea
+/project/build/

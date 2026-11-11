@@ -1,0 +1,1342 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index c0ef5cf..d816417 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -55,6 +55,7 @@ target_sources(sys4 PRIVATE
+   src/savefile.c
+   src/string.c
+   src/system.c
++  src/tga.c
+   src/utfsjis.c
+   src/webp.c
+   src/zlib.c
+diff --git a/include/system4.h b/include/system4.h
+index 8e126df..13d64a3 100644
+--- a/include/system4.h
++++ b/include/system4.h
+@@ -54,6 +54,7 @@ void sys_vmessage(const char *fmt, va_list ap);
+ void sys_message(const char *fmt, ...);
+ 
+ _Noreturn void sys_exit(int code);
++int sys_atexit(void (*callback)(void));
+ 
+ #define xmalloc(size) _xmalloc(size, __func__)
+ mem_alloc void *_xmalloc(size_t size, const char *func);
+diff --git a/include/system4/ain.h b/include/system4/ain.h
+index e3cf61b..eee4124 100644
+--- a/include/system4/ain.h
++++ b/include/system4/ain.h
+@@ -135,7 +135,8 @@ enum ain_data_type {
+ 	case AIN_REF_ARRAY_LONG_INT:		\
+ 	case AIN_REF_DELEGATE:			\
+ 	case AIN_REF_ARRAY_DELEGATE:		\
+-	case AIN_REF_ARRAY
++	case AIN_REF_ARRAY:			\
++	case AIN_REF_ENUM
+ 
+ #define AIN_MKTYPE(d, s, r) ((struct ain_type) { .data = d, .struc = s, .rank = r })
+ #define AIN_VOID_TYPE AIN_MKTYPE(AIN_VOID, -1, 0)
+diff --git a/include/system4/ajp.h b/include/system4/ajp.h
+index fc86642..ad774d7 100644
+--- a/include/system4/ajp.h
++++ b/include/system4/ajp.h
+@@ -22,8 +22,10 @@
+ #include <stdint.h>
+ 
+ struct cg;
++struct cg_metrics;
+ 
+ bool ajp_checkfmt(const uint8_t *data);
++bool ajp_get_metrics(const uint8_t *data, size_t size, struct cg_metrics *metrics);
+ void ajp_extract(const uint8_t *data, size_t size, struct cg *cg);
+ 
+ #endif /* SYSTEM4_AJP_H */
+diff --git a/include/system4/cg.h b/include/system4/cg.h
+index 75a2000..728c0fe 100644
+--- a/include/system4/cg.h
++++ b/include/system4/cg.h
+@@ -41,6 +41,7 @@ enum cg_type {
+ 	ALCG_JPEG    = 9,
+ 	ALCG_PCF     = 10,
+ 	ALCG_ROU     = 11,
++	ALCG_TGA     = 12,
+ 	_ALCG_NR_FORMATS
+ };
+ 
+diff --git a/include/system4/flat.h b/include/system4/flat.h
+index 2454667..fe3323e 100644
+--- a/include/system4/flat.h
++++ b/include/system4/flat.h
+@@ -233,7 +233,8 @@ struct flat_library {
+ 	size_t size;
+ 	uint8_t *decoded; // only for ELNA-encrypted data.
+ 	union {
+-		struct { const uint8_t *data; size_t size; bool generate_mipmap; } cg;
++		struct { const uint8_t *data; size_t size; bool generate_mipmap;
++			bool atlas; uint32_t atlas_x, atlas_y, atlas_w, atlas_h; } cg;
+ 		struct { struct flat_timeline *timelines; size_t nr_timelines; } timeline;
+ 		struct flat_stop_motion stop_motion;
+ 		struct flat_emitter emitter;
+diff --git a/include/system4/tga.h b/include/system4/tga.h
+new file mode 100644
+index 0000000..7d2d0af
+--- /dev/null
++++ b/include/system4/tga.h
+@@ -0,0 +1,30 @@
++/* Copyright (C) 2026 xsystem4-android contributors
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://gnu.org/licenses/>.
++ */
++
++#ifndef SYSTEM4_TGA_H
++#define SYSTEM4_TGA_H
++
++#include <stdbool.h>
++#include <stdint.h>
++#include <stddef.h>
++
++#include "system4/cg.h"
++
++bool tga_checkfmt(const uint8_t *data);
++void tga_get_metrics(const uint8_t *data, struct cg_metrics *dst);
++void tga_extract(const uint8_t *data, size_t size, struct cg *cg);
++
++#endif /* SYSTEM4_TGA_H */
+diff --git a/include/system4/utfsjis.h b/include/system4/utfsjis.h
+index 10e6924..7b19655 100644
+--- a/include/system4/utfsjis.h
++++ b/include/system4/utfsjis.h
+@@ -28,12 +28,21 @@
+ #include <stddef.h>
+ #include <stdint.h>
+ 
+-#define SJIS_2BYTE(b) ( ((b) & 0xe0) == 0x80 || ((b) & 0xe0) == 0xe0 )
++// GBK patches use lead bytes in the Shift-JIS half-width kana range. Keep
++// their byte boundaries separate from native Shift-JIS games (including R9).
++extern bool sys4_text_is_sjis;
++#define SJIS_2BYTE(b) (((uint8_t)(b) >= 0x81 && (uint8_t)(b) <= 0xfe) && \
++	(!sys4_text_is_sjis || (uint8_t)(b) <= 0x9f || ((uint8_t)(b) >= 0xe0 && (uint8_t)(b) <= 0xfc)))
+ 
+ extern int   sjis_index(const char *src, int index);
+ extern char *sjis_char2unicode(const char *src, int *dst);
++extern char *sjis_char2unicode_sjis(const char *src, int *dst);
++extern char *sjis_char2unicode_gbk(const char *src, int *dst);
+ extern char* sjis2utf(const char *src, size_t len);
++extern char* sjis2utf_sjis(const char *src, size_t len);
++extern char* sjis2utf_gbk(const char *src, size_t len);
+ extern char* utf2sjis(const char *src, size_t len);
++extern char* utf2gbk(const char *src, size_t len);
+ extern bool  sjis_has_hankaku(const char *src);
+ extern bool  sjis_has_zenkaku(const char *src);
+ extern int   sjis_count_char(const char *src);
+@@ -56,7 +65,7 @@ static inline uint16_t sjis_code(const char *_str)
+ 
+ static inline char *sjis_skip_char(const char *str)
+ {
+-	return (char*)(str + (SJIS_2BYTE(*str) ? 2 : 1));
++	return (char*)(str + (SJIS_2BYTE(*str) && str[1] ? 2 : 1));
+ }
+ 
+ #endif /* SYSTEM4_UTFSJIS */
+diff --git a/meson.build b/meson.build
+index 4161ef7..555a926 100644
+--- a/meson.build
++++ b/meson.build
+@@ -68,6 +68,7 @@ system4 = ['src/aar.c',
+            'src/savefile.c',
+            'src/string.c',
+            'src/system.c',
++           'src/tga.c',
+            'src/utfsjis.c',
+            'src/webp.c',
+            'src/zlib.c',
+diff --git a/src/ain.c b/src/ain.c
+index 72f863a..c7e28b2 100644
+--- a/src/ain.c
++++ b/src/ain.c
+@@ -1386,6 +1386,21 @@ err:
+ 	return NULL;
+ }
+ 
++static void resolve_message_function(struct ain *ain)
++{
++	if (ain->version < 12 || ain->MSGF.present)
++		return;
++	int fno = ain_get_function(ain, "message");
++	if (fno < 0)
++		return;
++	struct ain_function *f = &ain->functions[fno];
++	if (f->return_type.data == AIN_VOID && f->nr_args == 3 &&
++		f->vars[0].type.data == AIN_INT &&
++		f->vars[1].type.data == AIN_INT &&
++		f->vars[2].type.data == AIN_STRING)
++		ain->msgf = fno;
++}
++
+ struct ain *ain_open_conv(const char *path, char*(*conv)(const char*), int *error)
+ {
+ 	long len;
+@@ -1406,6 +1421,7 @@ struct ain *ain_open_conv(const char *path, char*(*conv)(const char*), int *erro
+ 	};
+ 	ain->version = -1;
+ 	ain->alloc = -1;
++	ain->msgf = -1;
+ 	while (read_tag(&r, ain));
+ 	if (ain->version == -1) {
+ 		*error = AIN_INVALID;
+@@ -1414,6 +1430,11 @@ struct ain *ain_open_conv(const char *path, char*(*conv)(const char*), int *erro
+ 	if (ain->MSG1.present && ain->version == 6) {
+ 		ain->minor_version = max(ain->minor_version, 1);
+ 	}
++	/* AIN 12 drops MSGF and uses the conventional message entry point.
++	 * Leaving the calloc default (function 0) dispatches text to NULL and
++	 * leaves its three arguments on the VM stack. Keep explicit MSGF intact
++	 * and only accept the exact message callback ABI for the new format. */
++	resolve_message_function(ain);
+ 	distribute_initvals(ain);
+ 
+ 	free(buf);
+diff --git a/src/ajp.c b/src/ajp.c
+index 2b0dd73..06fc009 100644
+--- a/src/ajp.c
++++ b/src/ajp.c
+@@ -68,6 +68,7 @@ static void ajp_extract_header(const uint8_t *data, struct ajp_header *ajp)
+ 
+ static void ajp_init_metrics(struct ajp_header *ajp, struct cg_metrics *dst)
+ {
++	dst->x = dst->y = 0;
+ 	dst->w = ajp->width;
+ 	dst->h = ajp->height;
+ 	dst->bpp = 24;
+@@ -77,6 +78,21 @@ static void ajp_init_metrics(struct ajp_header *ajp, struct cg_metrics *dst)
+ 	dst->alpha_pitch = 1;
+ }
+ 
++bool ajp_get_metrics(const uint8_t *data, size_t size, struct cg_metrics *metrics)
++{
++	if (size < 36 || !ajp_checkfmt(data))
++		return false;
++	struct ajp_header header;
++	ajp_extract_header(data, &header);
++	if (!header.width || !header.height || header.width > INT32_MAX / 4
++			|| header.height > INT32_MAX
++			|| header.jpeg_off > size || header.jpeg_size > size - header.jpeg_off
++			|| header.mask_off > size || header.mask_size > size - header.mask_off)
++		return false;
++	ajp_init_metrics(&header, metrics);
++	return true;
++}
++
+ static uint8_t *read_mask(uint8_t *pixels, uint8_t *mask_data, struct ajp_header *ajp)
+ {
+ 	if (ajp->mask_size == 0)
+diff --git a/src/cg.c b/src/cg.c
+index 6e886be..4e8d943 100644
+--- a/src/cg.c
++++ b/src/cg.c
+@@ -29,6 +29,7 @@
+ #include "system4/png.h"
+ #include "system4/qnt.h"
+ #include "system4/rou.h"
++#include "system4/tga.h"
+ #include "system4/webp.h"
+ 
+ const char *cg_file_extensions[_ALCG_NR_FORMATS] = {
+@@ -43,6 +44,7 @@ const char *cg_file_extensions[_ALCG_NR_FORMATS] = {
+ 	[ALCG_JPEG]    = "jpg",
+ 	[ALCG_PCF]     = "pcf",
+ 	[ALCG_ROU]     = "rou",
++	[ALCG_TGA]     = "tga",
+ };
+ 
+ /*
+@@ -72,6 +74,9 @@ enum cg_type cg_check_format(uint8_t *data)
+ 		return ALCG_PCF;
+ 	} else if (rou_checkfmt(data)) {
+ 		return ALCG_ROU;
++	} else if (tga_checkfmt(data)) {
++		// Last: TGA has no magic number, so this validates the header.
++		return ALCG_TGA;
+ 	}
+ 	return ALCG_UNKNOWN;
+ }
+@@ -83,8 +88,7 @@ bool cg_get_metrics_internal(uint8_t *buf, size_t buf_size, struct cg_metrics *d
+ 		qnt_get_metrics(buf, dst);
+ 		break;
+ 	case ALCG_AJP:
+-		WARNING("AJP GetMetrics not implemented");
+-		return false;
++		return ajp_get_metrics(buf, buf_size, dst);
+ 	case ALCG_PNG:
+ 		png_cg_get_metrics(buf, buf_size, dst);
+ 		break;
+@@ -107,6 +111,9 @@ bool cg_get_metrics_internal(uint8_t *buf, size_t buf_size, struct cg_metrics *d
+ 	case ALCG_ROU:
+ 		rou_get_metrics(buf, buf_size, dst);
+ 		break;
++	case ALCG_TGA:
++		tga_get_metrics(buf, dst);
++		break;
+ 	default:
+ 		WARNING("Unknown CG type");
+ 		return false;
+@@ -176,10 +183,19 @@ static struct cg *cg_load_internal(uint8_t *buf, size_t buf_size, struct archive
+ 	case ALCG_ROU:
+ 		rou_extract(buf, buf_size, cg);
+ 		break;
+-	default:
+-		WARNING("Unknown CG type");
++	case ALCG_TGA:
++		tga_extract(buf, buf_size, cg);
++		break;
++	default: {
++		char hex[3 * 16 + 1];
++		size_t n = buf_size < 16 ? buf_size : 16;
++		for (size_t i = 0; i < n; i++)
++			snprintf(hex + i * 3, 4, "%02x ", buf[i]);
++		hex[n * 3] = '\0';
++		NOTICE("Unknown CG type: size=%zu first bytes: %s", buf_size, hex);
+ 		break;
+ 	}
++	}
+ 
+ 	if (cg->pixels)
+ 		return cg;
+diff --git a/src/file.c b/src/file.c
+index 72cd009..0d59e70 100644
+--- a/src/file.c
++++ b/src/file.c
+@@ -214,11 +214,111 @@ char *path_basename(const char *path)
+ 
+ #else
+ 
++#include <strings.h>
++
+ #define make_dir(path, mode) mkdir(path, mode)
+ 
++/*
++ * CN ports mix codepages inside one directory tree: the data was extracted on
++ * Windows with the GBK codepage (so a folder carries the GBK reading of the
++ * original SJIS bytes, e.g. "婄俠俧" for "顔ＣＧ"), while other entries kept
++ * their Japanese kana ("AliceSoft_02_ガード１.png"). Paths coming from the
++ * game are converted with the GBK reading, so a kana name does not match.
++ *
++ * When an exact lookup fails we retry with the other interpretation of the
++ * same bytes and search the parent directory for a matching entry.
++ */
++static char *alt_name_decoding(const char *utf8)
++{
++	char *gbk = utf2gbk(utf8, 0);
++	char *alt = sjis2utf_sjis(gbk, 0);
++	free(gbk);
++	return alt;
++}
++
++static char *find_dirent_match(const char *dir, const char *name)
++{
++	char *alt = alt_name_decoding(name);
++	DIR *d = opendir(dir && *dir ? dir : ".");
++	if (!d) {
++		free(alt);
++		return NULL;
++	}
++	struct dirent *e;
++	char *found = NULL;
++	while ((e = readdir(d))) {
++		if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, ".."))
++			continue;
++		if (!strcasecmp(e->d_name, name) ||
++		    (alt && !strcasecmp(e->d_name, alt))) {
++			found = xstrdup(e->d_name);
++			break;
++		}
++	}
++	closedir(d);
++	free(alt);
++	return found;
++}
++
++// Returns an existing path equivalent to `path`, or NULL if none exists.
++static char *resolve_existing_path(const char *path)
++{
++	ustat st;
++	if (stat(path, &st) == 0)
++		return xstrdup(path);
++
++	char *alt = alt_name_decoding(path);
++	if (alt && stat(alt, &st) == 0)
++		return alt;
++	free(alt);
++
++	char *work = xstrdup(path);
++	char *out = xmalloc(PATH_MAX);
++	out[0] = '\0';
++	if (path[0] == '/')
++		strcpy(out, "/");
++
++	char *saveptr = NULL;
++	for (char *comp = strtok_r(work, "/", &saveptr); comp;
++	     comp = strtok_r(NULL, "/", &saveptr)) {
++		char cand[PATH_MAX];
++		size_t len = strlen(out);
++		snprintf(cand, sizeof(cand), "%s%s%s", out,
++		         (len && out[len - 1] != '/') ? "/" : "", comp);
++		if (stat(cand, &st) != 0) {
++			char *match = find_dirent_match(*out ? out : ".", comp);
++			if (!match) {
++				free(work);
++				free(out);
++				return NULL;
++			}
++			len = strlen(out);
++			snprintf(cand, sizeof(cand), "%s%s%s", out,
++			         (len && out[len - 1] != '/') ? "/" : "", match);
++			free(match);
++			if (stat(cand, &st) != 0) {
++				free(work);
++				free(out);
++				return NULL;
++			}
++		}
++		snprintf(out, PATH_MAX, "%s", cand);
++	}
++	free(work);
++	return out;
++}
++
+ UDIR *opendir_utf8(const char *path)
+ {
+-	return opendir(path);
++	UDIR *d = opendir(path);
++	if (d || errno != ENOENT)
++		return d;
++	char *resolved = resolve_existing_path(path);
++	if (!resolved)
++		return NULL;
++	d = opendir(resolved);
++	free(resolved);
++	return d;
+ }
+ 
+ int closedir_utf8(UDIR *dir)
+@@ -236,7 +336,15 @@ char *readdir_utf8(UDIR *dir)
+ 
+ int stat_utf8(const char *path, ustat *st)
+ {
+-	return stat(path, st);
++	int r = stat(path, st);
++	if (r == 0 || errno != ENOENT)
++		return r;
++	char *resolved = resolve_existing_path(path);
++	if (!resolved)
++		return r;
++	r = stat(resolved, st);
++	free(resolved);
++	return r;
+ }
+ 
+ char *realpath_utf8(const char *upath)
+@@ -256,7 +364,16 @@ int rmdir_utf8(const char *path)
+ 
+ FILE *file_open_utf8(const char *path, const char *mode)
+ {
+-	return fopen(path, mode);
++	FILE *fp = fopen(path, mode);
++	if (fp || errno != ENOENT || mode[0] != 'r')
++		return fp;
++	// Reading a file whose name was decoded with the other codepage.
++	char *resolved = resolve_existing_path(path);
++	if (!resolved)
++		return NULL;
++	fp = fopen(resolved, mode);
++	free(resolved);
++	return fp;
+ }
+ 
+ char *path_dirname(const char *path)
+diff --git a/src/flat.c b/src/flat.c
+index 30a52e6..b1d9aee 100644
+--- a/src/flat.c
++++ b/src/flat.c
+@@ -136,8 +136,8 @@ static void read_talt(struct flat *fl)
+ 		fl->talt_entries[i].size = buffer_read_int32(&r);
+ 		fl->talt_entries[i].off = fl->talt.off + r.index + 8;
+ 
+-		if (strncmp(buffer_strdata(&r), "AJP", 4) != 0)
+-			WARNING("File in flat TALT section is not ajp format");
++		/* Later Flats also embed QNT/PNG atlases here. The CG decoder
++		 * validates their formats when used; TALT only stores byte ranges. */
+ 
+ 		buffer_skip(&r, fl->talt_entries[i].size);
+ 		buffer_align(&r, 4);
+diff --git a/src/instructions.c b/src/instructions.c
+index da0406a..87f129d 100644
+--- a/src/instructions.c
++++ b/src/instructions.c
+@@ -404,9 +404,9 @@ struct instruction instructions[NR_OPCODES] = {
+         OP   ( DG_STR_TO_METHOD,   0, (T_DLG),         (T_STRING, T_DLG), (T_FUNC) ), // XXX: changed in ain version > 8
+ 
+ 	TODO ( OP_0X102, 0, (),             (), () ),
+-	TODO ( X_GETENV, 0, (),             (), () ),
+-	TODO ( X_SET,    0, (),             (), () ),
+-	TODO ( X_ICAST,  1, (T_STRUCT),     (), () ),
++	OP   ( X_GETENV, 0, (),             (T_PAGE), (T_PAGE) ),
++	OP   ( X_SET,    0, (),             (T_PAGE, T_PAGE), (T_PAGE) ),
++	OP   ( X_ICAST,  1, (T_STRUCT),     (T_PAGE), (T_PAGE, T_INT, T_INT) ),
+ 	TODO ( X_OP_SET, 1, (T_INT),        (), () ),
+ 	TODO ( OP_0X107, 0, (),             (), () ),
+ 	TODO ( OP_0X108, 0, (),             (), () ),
+diff --git a/src/little_endian.h b/src/little_endian.h
+index 5451ee2..cbddb02 100644
+--- a/src/little_endian.h
++++ b/src/little_endian.h
+@@ -25,15 +25,15 @@
+ 
+ static inline int32_t LittleEndian_getDW(const uint8_t *b, int i)
+ {
+-	int c0, c1, c2, c3;
+-	int d0, d1;
++	uint32_t c0, c1, c2, c3;
++	uint32_t d0, d1;
+ 	c0 = *(b + i  + 0);
+ 	c1 = *(b + i  + 1);
+ 	c2 = *(b + i  + 2);
+ 	c3 = *(b + i  + 3);
+ 	d0 = c0 + (c1 << 8);
+ 	d1 = c2 + (c3 << 8);
+-	return d0 + (d1 << 16);
++	return (int32_t)(d0 | (d1 << 16));
+ }
+ 
+ static inline int32_t LittleEndian_get3B(const uint8_t *b, int i)
+diff --git a/src/savefile.c b/src/savefile.c
+index 9ed216b..a70788f 100644
+--- a/src/savefile.c
++++ b/src/savefile.c
+@@ -233,6 +233,7 @@ static bool gsave_validate_value(int32_t val, enum ain_data_type type, struct gs
+ 	switch (type) {
+ 	case AIN_VOID:
+ 	case AIN_INT:
++	case AIN_ENUM:
+ 	case AIN_BOOL:
+ 	case AIN_FUNC_TYPE:
+ 	case AIN_DELEGATE:
+@@ -244,6 +245,10 @@ static bool gsave_validate_value(int32_t val, enum ain_data_type type, struct gs
+ 		return (0 <= val && val < gs->nr_strings) || val == GSAVE7_EMPTY_STRING;
+ 	case AIN_STRUCT:
+ 		return 0 <= val && val < gs->nr_records;
++	case AIN_ARRAY:
++		/* Recover the omitted-array sentinel written by older generic ABI
++		 * compatibility builds; the VM restores it as an empty array. */
++		if (val == -1) return true;
+ 	case AIN_ARRAY_TYPE:
+ 		return 0 <= val && val < gs->nr_arrays;
+ 	default:
+@@ -283,7 +288,8 @@ enum savefile_error gsave_parse(uint8_t *buf, size_t len, struct gsave *gs)
+ 	if (r.index != records_offset)
+ 		return SAVEFILE_INVALID;
+ 	gs->records = xcalloc(gs->nr_records, sizeof(struct gsave_record));
+-	for (struct gsave_record *rec = gs->records; rec < gs->records + gs->nr_records; rec++) {
++	for (int rec_idx = 0; rec_idx < gs->nr_records; rec_idx++) {
++		struct gsave_record *rec = &gs->records[rec_idx];
+ 		if (gs->version <= 5) {
+ 			rec->type = buffer_read_int32(&r);
+ 			rec->struct_name = strdup(buffer_skip_string(&r));
+@@ -316,7 +322,8 @@ enum savefile_error gsave_parse(uint8_t *buf, size_t len, struct gsave *gs)
+ 	if (r.index != globals_offset)
+ 		return SAVEFILE_INVALID;
+ 	gs->globals = xcalloc(gs->nr_globals, sizeof(struct gsave_global));
+-	for (struct gsave_global *g = gs->globals; g < gs->globals + gs->nr_globals; g++) {
++	for (int g_idx = 0; g_idx < gs->nr_globals; g_idx++) {
++		struct gsave_global *g = &gs->globals[g_idx];
+ 		g->type = buffer_read_int32(&r);
+ 		g->value = buffer_read_int32(&r);
+ 		g->name = strdup(buffer_skip_string(&r));
+@@ -338,7 +345,8 @@ enum savefile_error gsave_parse(uint8_t *buf, size_t len, struct gsave *gs)
+ 	if (r.index != arrays_offset)
+ 		return SAVEFILE_INVALID;
+ 	gs->arrays = xcalloc(gs->nr_arrays, sizeof(struct gsave_array));
+-	for (struct gsave_array *a = gs->arrays; a < gs->arrays + gs->nr_arrays; a++) {
++	for (int a_idx = 0; a_idx < gs->nr_arrays; a_idx++) {
++		struct gsave_array *a = &gs->arrays[a_idx];
+ 		a->rank = buffer_read_int32(&r);
+ 		int expected_nr_flat_arrays = 0;
+ 		if (a->rank > 0) {
+@@ -354,7 +362,8 @@ enum savefile_error gsave_parse(uint8_t *buf, size_t len, struct gsave *gs)
+ 		if (a->nr_flat_arrays != expected_nr_flat_arrays)
+ 			return SAVEFILE_INVALID;
+ 		a->flat_arrays = xcalloc(a->nr_flat_arrays, sizeof(struct gsave_flat_array));
+-		for (struct gsave_flat_array *fa = a->flat_arrays; fa < a->flat_arrays + a->nr_flat_arrays; fa++) {
++		for (int fa_idx = 0; fa_idx < a->nr_flat_arrays; fa_idx++) {
++			struct gsave_flat_array *fa = &a->flat_arrays[fa_idx];
+ 			fa->nr_values = buffer_read_int32(&r);
+ 			if (fa->nr_values != a->dimensions[0])
+ 				return SAVEFILE_INVALID;
+@@ -376,7 +385,8 @@ enum savefile_error gsave_parse(uint8_t *buf, size_t len, struct gsave *gs)
+ 	if (r.index != keyvals_offset)
+ 		return SAVEFILE_INVALID;
+ 	gs->keyvals = xcalloc(gs->nr_keyvals, sizeof(struct gsave_keyval));
+-	for (struct gsave_keyval *kv = gs->keyvals; kv < gs->keyvals + gs->nr_keyvals; kv++) {
++	for (int kv_idx = 0; kv_idx < gs->nr_keyvals; kv_idx++) {
++		struct gsave_keyval *kv = &gs->keyvals[kv_idx];
+ 		if (gs->version <= 5) {
+ 			kv->type = buffer_read_int32(&r);
+ 			kv->value = buffer_read_int32(&r);
+@@ -392,11 +402,13 @@ enum savefile_error gsave_parse(uint8_t *buf, size_t len, struct gsave *gs)
+ 	if (gs->version >= 7) {
+ 		gs->nr_struct_defs = buffer_read_int32(&r);
+ 		gs->struct_defs = xcalloc(gs->nr_struct_defs, sizeof(struct gsave_struct_def));
+-		for (struct gsave_struct_def *sd = gs->struct_defs; sd < gs->struct_defs + gs->nr_struct_defs; sd++) {
++		for (int sd_idx = 0; sd_idx < gs->nr_struct_defs; sd_idx++) {
++			struct gsave_struct_def *sd = &gs->struct_defs[sd_idx];
+ 			sd->name = strdup(buffer_skip_string(&r));
+ 			sd->nr_fields = buffer_read_int32(&r);
+ 			sd->fields = xcalloc(sd->nr_fields, sizeof(struct gsave_field_def));
+-			for (struct gsave_field_def *fd = sd->fields; fd < sd->fields + sd->nr_fields; fd++) {
++			for (int fd_idx = 0; fd_idx < sd->nr_fields; fd_idx++) {
++				struct gsave_field_def *fd = &sd->fields[fd_idx];
+ 				fd->type = buffer_read_int32(&r);
+ 				fd->name = strdup(buffer_skip_string(&r));
+ 			}
+@@ -439,7 +451,8 @@ enum savefile_error gsave_write(struct gsave *gs, FILE *out, bool encrypt, int c
+ 
+ 	// records
+ 	buffer_write_int32_at(&w, records_offset_loc, w.index);
+-	for (struct gsave_record *r = gs->records; r < gs->records + gs->nr_records; r++) {
++	for (int r_idx = 0; r_idx < gs->nr_records; r_idx++) {
++		struct gsave_record *r = &gs->records[r_idx];
+ 		if (gs->version <= 5) {
+ 			buffer_write_int32(&w, r->type);
+ 			buffer_write_cstringz(&w, r->struct_name);
+@@ -453,7 +466,8 @@ enum savefile_error gsave_write(struct gsave *gs, FILE *out, bool encrypt, int c
+ 
+ 	// globals
+ 	buffer_write_int32_at(&w, globals_offset_loc, w.index);
+-	for (struct gsave_global *g = gs->globals; g < gs->globals + gs->nr_globals; g++) {
++	for (int g_idx = 0; g_idx < gs->nr_globals; g_idx++) {
++		struct gsave_global *g = &gs->globals[g_idx];
+ 		buffer_write_int32(&w, g->type);
+ 		buffer_write_int32(&w, g->value);
+ 		buffer_write_cstringz(&w, g->name);
+@@ -469,12 +483,14 @@ enum savefile_error gsave_write(struct gsave *gs, FILE *out, bool encrypt, int c
+ 
+ 	// arrays
+ 	buffer_write_int32_at(&w, arrays_offset_loc, w.index);
+-	for (struct gsave_array *a = gs->arrays; a < gs->arrays + gs->nr_arrays; a++) {
++	for (int a_idx = 0; a_idx < gs->nr_arrays; a_idx++) {
++		struct gsave_array *a = &gs->arrays[a_idx];
+ 		buffer_write_int32(&w, a->rank);
+ 		for (int i = 0; i < a->rank; i++)
+ 			buffer_write_int32(&w, a->dimensions[i]);
+ 		buffer_write_int32(&w, a->nr_flat_arrays);
+-		for (struct gsave_flat_array *fa = a->flat_arrays; fa < a->flat_arrays + a->nr_flat_arrays; fa++) {
++		for (int fa_idx = 0; fa_idx < a->nr_flat_arrays; fa_idx++) {
++			struct gsave_flat_array *fa = &a->flat_arrays[fa_idx];
+ 			buffer_write_int32(&w, fa->nr_values);
+ 			if (gs->version >= 7)
+ 				buffer_write_int32(&w, fa->type);
+@@ -488,7 +504,8 @@ enum savefile_error gsave_write(struct gsave *gs, FILE *out, bool encrypt, int c
+ 
+ 	// key-values
+ 	buffer_write_int32_at(&w, keyvals_offset_loc, w.index);
+-	for (struct gsave_keyval *kv = gs->keyvals; kv < gs->keyvals + gs->nr_keyvals; kv++) {
++	for (int kv_idx = 0; kv_idx < gs->nr_keyvals; kv_idx++) {
++		struct gsave_keyval *kv = &gs->keyvals[kv_idx];
+ 		if (gs->version <= 5)
+ 			buffer_write_int32(&w, kv->type);
+ 		buffer_write_int32(&w, kv->value);
+@@ -499,10 +516,12 @@ enum savefile_error gsave_write(struct gsave *gs, FILE *out, bool encrypt, int c
+ 	// struct-defs
+ 	if (gs->version >= 7) {
+ 		buffer_write_int32(&w, gs->nr_struct_defs);
+-		for (struct gsave_struct_def *sd = gs->struct_defs; sd < gs->struct_defs + gs->nr_struct_defs; sd++) {
++		for (int sd_idx = 0; sd_idx < gs->nr_struct_defs; sd_idx++) {
++			struct gsave_struct_def *sd = &gs->struct_defs[sd_idx];
+ 			buffer_write_cstringz(&w, sd->name);
+ 			buffer_write_int32(&w, sd->nr_fields);
+-			for (struct gsave_field_def *fd = sd->fields; fd < sd->fields + sd->nr_fields; fd++) {
++			for (int fd_idx = 0; fd_idx < sd->nr_fields; fd_idx++) {
++				struct gsave_field_def *fd = &sd->fields[fd_idx];
+ 				buffer_write_int32(&w, fd->type);
+ 				buffer_write_cstringz(&w, fd->name);
+ 			}
+diff --git a/src/string.c b/src/string.c
+index f8b62a5..90c6d4a 100644
+--- a/src/string.c
++++ b/src/string.c
+@@ -115,11 +115,23 @@ struct string *integer_to_string(int n)
+ 
+ static void number_zen2han(char *buf)
+ {
+-	for (int src = 0, dst = 0; buf[src];) {
++	int src = 0, dst = 0;
++	for (; buf[src];) {
+ 		uint8_t b1 = buf[src];
+-		if (SJIS_2BYTE(b1)) {
++		if (SJIS_2BYTE(b1) && buf[src+1]) {
+ 			uint8_t b2 = buf[src+1];
+-			if (b1 == 0x82 && b2 >= 0x4f && b2 <= 0x58) {
++			/* CN scripts and EX data use GBK full-width numbers; runtime
++			 * formatting can also supply the original SJIS forms. */
++			if (b1 == 0xa3 && b2 >= 0xb0 && b2 <= 0xb9) {
++				buf[dst++] = '0' + (b2 - 0xb0);
++				src += 2;
++			} else if (b1 == 0xa3 && (b2 == 0xab || b2 == 0xad || b2 == 0xae)) {
++				buf[dst++] = b2 - 0x80;
++				src += 2;
++			} else if (b1 == 0xa1 && b2 == 0xa1) {
++				buf[dst++] = ' ';
++				src += 2;
++			} else if (b1 == 0x82 && b2 >= 0x4f && b2 <= 0x58) {
+ 				buf[dst++] = '0' + (b2 - 0x4f);
+ 				src += 2;
+ 			} else if (b1 == 0x81 && b2 == 0x7c) {
+@@ -139,6 +151,7 @@ static void number_zen2han(char *buf)
+ 			buf[dst++] = buf[src++];
+ 		}
+ 	}
++	buf[dst] = '\0';
+ }
+ 
+ int string_to_integer(struct string *s)
+diff --git a/src/system.c b/src/system.c
+index 36ad408..54ff61e 100644
+--- a/src/system.c
++++ b/src/system.c
+@@ -24,6 +24,7 @@
+ 
+ #ifdef __ANDROID__
+ #include <android/log.h>
++#include <stdatomic.h>
+ #endif
+ 
+ #include "system4.h"
+@@ -110,7 +111,10 @@ _Noreturn void sys_verror(const char *fmt, va_list ap)
+ {
+ 	if (sys_error_handler) {
+ 		char msg[4096];
+-		vsnprintf(msg, 4096, fmt, ap);
++		va_list handler_ap;
++		va_copy(handler_ap, ap);
++		vsnprintf(msg, 4096, fmt, handler_ap);
++		va_end(handler_ap);
+ 		sys_error_handler(msg);
+ 	}
+ #ifdef __ANDROID__
+@@ -166,8 +170,49 @@ void sys_message(const char *fmt, ...)
+ 	va_end(ap);
+ }
+ 
++#ifdef __ANDROID__
++struct sys_exit_callback {
++	void (*callback)(void);
++	struct sys_exit_callback *next;
++};
++static struct sys_exit_callback *exit_callbacks;
++static atomic_flag exit_started = ATOMIC_FLAG_INIT;
++#endif
++
++int sys_atexit(void (*callback)(void))
++{
++#ifdef __ANDROID__
++	struct sys_exit_callback *entry = malloc(sizeof(*entry));
++	if (!entry)
++		return -1;
++	entry->callback = callback;
++	entry->next = exit_callbacks;
++	exit_callbacks = entry;
++	return 0;
++#else
++	return atexit(callback);
++#endif
++}
++
+ _Noreturn void sys_exit(int code)
+ {
+-	// TODO: cleanup
++#ifdef __ANDROID__
++	// The Activity's HWUI and audio threads are still alive here. exit()
++	// also runs Android/vendor C++ static destructors, destroying mutexes
++	// those threads still use. Run our own save/SDL cleanup, then terminate
++	// the process without invoking unrelated library destructors.
++	if (!atomic_flag_test_and_set(&exit_started)) {
++		while (exit_callbacks) {
++			struct sys_exit_callback *entry = exit_callbacks;
++			void (*callback)(void) = entry->callback;
++			exit_callbacks = entry->next;
++			free(entry);
++			callback();
++		}
++		fflush(NULL);
++	}
++	_Exit(code);
++#else
+ 	exit(code);
++#endif
+ }
+diff --git a/src/tga.c b/src/tga.c
+new file mode 100644
+index 0000000..61a50d0
+--- /dev/null
++++ b/src/tga.c
+@@ -0,0 +1,209 @@
++/* Copyright (C) 2026 xsystem4-android contributors
++ *
++ * Truevision TGA decoder.
++ *
++ * Rance Quest's CG archives mix QNT and TGA images (the UI elements are TGA),
++ * and TGA is the only one of them without a magic number - it is recognised by
++ * validating the header.
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://gnu.org/licenses/>.
++ */
++
++#include <stdbool.h>
++#include <stdint.h>
++#include <stdlib.h>
++#include <string.h>
++
++#include "system4.h"
++#include "system4/cg.h"
++#include "system4/tga.h"
++
++#define TGA_HEADER_SIZE 18
++
++enum {
++	TGA_NO_IMAGE      = 0,
++	TGA_CMAP          = 1,
++	TGA_TRUECOLOR     = 2,
++	TGA_GRAYSCALE     = 3,
++	TGA_CMAP_RLE      = 9,
++	TGA_TRUECOLOR_RLE = 10,
++	TGA_GRAYSCALE_RLE = 11,
++};
++
++static int tga_width(const uint8_t *data)
++{
++	return data[12] | data[13] << 8;
++}
++
++static int tga_height(const uint8_t *data)
++{
++	return data[14] | data[15] << 8;
++}
++
++static int tga_pixel_size(uint8_t bpp)
++{
++	return (bpp + 7) / 8;
++}
++
++bool tga_checkfmt(const uint8_t *data)
++{
++	uint8_t image_type = data[2];
++	if (image_type != TGA_TRUECOLOR && image_type != TGA_TRUECOLOR_RLE &&
++	    image_type != TGA_GRAYSCALE && image_type != TGA_GRAYSCALE_RLE)
++		return false;
++	// Colormapped images are not supported below.
++	uint8_t cmap_type = data[1];
++	if (image_type == TGA_GRAYSCALE || image_type == TGA_GRAYSCALE_RLE) {
++		if (cmap_type != 0)
++			return false;
++	}
++	int w = tga_width(data), h = tga_height(data);
++	if (w <= 0 || h <= 0 || w > 16384 || h > 16384)
++		return false;
++	uint8_t bpp = data[16];
++	if (bpp != 8 && bpp != 16 && bpp != 24 && bpp != 32)
++		return false;
++	if (image_type == TGA_GRAYSCALE || image_type == TGA_GRAYSCALE_RLE) {
++		if (bpp != 8)
++			return false;
++	}
++	return true;
++}
++
++void tga_get_metrics(const uint8_t *data, struct cg_metrics *dst)
++{
++	uint8_t bpp = data[16];
++	dst->w = tga_width(data);
++	dst->h = tga_height(data);
++	dst->bpp = bpp;
++	dst->has_pixel = true;
++	dst->has_alpha = bpp == 32 || (data[17] & 0x0f);
++	dst->pixel_pitch = dst->w * tga_pixel_size(bpp);
++	dst->alpha_pitch = 1;
++}
++
++/*
++ * Expand one source pixel (BGR / BGRA / gray) to RGBA.
++ */
++static void tga_store_pixel(uint8_t *dst, const uint8_t *src, int bpp, bool alpha_bits)
++{
++	switch (bpp) {
++	case 8:
++		dst[0] = dst[1] = dst[2] = src[0];
++		dst[3] = 0xFF;
++		break;
++	case 16:
++		// 16bpp TGA is 5-5-5-1 (A1R5G5B5); scale each channel to 8 bits.
++	{
++		uint16_t v = src[0] | src[1] << 8;
++		uint8_t b = (v & 0x1F) << 3, g = (v >> 5 & 0x1F) << 3, r = (v >> 10 & 0x1F) << 3;
++		dst[0] = r | r >> 5;
++		dst[1] = g | g >> 5;
++		dst[2] = b | b >> 5;
++		dst[3] = (v & 0x8000) ? 0xFF : 0x00;
++		break;
++	}
++	case 24:
++		dst[0] = src[2];
++		dst[1] = src[1];
++		dst[2] = src[0];
++		dst[3] = 0xFF;
++		break;
++	default: // 32
++		dst[0] = src[2];
++		dst[1] = src[1];
++		dst[2] = src[0];
++		// With alpha bits declared the 4th byte is real alpha data.
++		dst[3] = alpha_bits ? src[3] : 0xFF;
++		break;
++	}
++}
++
++void tga_extract(const uint8_t *data, size_t size, struct cg *cg)
++{
++	tga_get_metrics(data, &cg->metrics);
++	cg->type = ALCG_TGA;
++
++	int w = cg->metrics.w, h = cg->metrics.h;
++	uint8_t bpp = data[16];
++	uint8_t image_type = data[2];
++	uint8_t descriptor = data[17];
++	bool rle = image_type == TGA_TRUECOLOR_RLE || image_type == TGA_GRAYSCALE_RLE;
++	bool top_down = (descriptor & 0x20) != 0;
++	bool alpha_bits = (descriptor & 0x0f) != 0;
++	int px_size = tga_pixel_size(bpp);
++
++	const uint8_t *src = data + TGA_HEADER_SIZE + data[0];
++	const uint8_t *end = data + size;
++	uint8_t *pixels = xcalloc(1, (size_t)w * h * 4);
++	if (!pixels || src > end) {
++		free(pixels);
++		return;
++	}
++
++	size_t nr_pixels = (size_t)w * h;
++	uint8_t *dst = pixels;
++	if (!rle) {
++		if (src + nr_pixels * px_size > end) {
++			WARNING("TGA: truncated pixel data");
++			free(pixels);
++			return;
++		}
++		for (size_t i = 0; i < nr_pixels; i++, src += px_size, dst += 4)
++			tga_store_pixel(dst, src, bpp, alpha_bits);
++	} else {
++		size_t done = 0;
++		while (done < nr_pixels) {
++			if (src >= end) {
++				WARNING("TGA: truncated RLE stream");
++				break;
++			}
++			uint8_t packet = *src++;
++			size_t count = (packet & 0x7f) + 1;
++			if (done + count > nr_pixels)
++				count = nr_pixels - done;
++			if (packet & 0x80) {
++				// run-length packet: one pixel repeated
++				if (src + px_size > end)
++					break;
++				for (size_t i = 0; i < count; i++, dst += 4)
++					tga_store_pixel(dst, src, bpp, alpha_bits);
++				src += px_size;
++			} else {
++				// raw packet
++				if (src + count * px_size > end)
++					break;
++				for (size_t i = 0; i < count; i++, src += px_size, dst += 4)
++					tga_store_pixel(dst, src, bpp, alpha_bits);
++			}
++			done += count;
++		}
++	}
++
++	// TGA stores rows bottom-up unless the top-down flag is set.
++	if (!top_down) {
++		size_t row = (size_t)w * 4;
++		uint8_t *tmp = xmalloc(row);
++		for (int y = 0; y < h / 2; y++) {
++			uint8_t *a = pixels + (size_t)y * row;
++			uint8_t *b = pixels + (size_t)(h - 1 - y) * row;
++			memcpy(tmp, a, row);
++			memcpy(a, b, row);
++			memcpy(b, tmp, row);
++		}
++		free(tmp);
++	}
++
++	cg->pixels = pixels;
++}
+diff --git a/src/utfsjis.c b/src/utfsjis.c
+index 6a312dc..6f684f3 100644
+--- a/src/utfsjis.c
++++ b/src/utfsjis.c
+@@ -47,13 +47,48 @@ int sjis_index(const char *_src, int index)
+ 
+ #include "system4.h"
+ 
++#include "gbk_table.h"
++#include "gbk_rev_table.h"
++
++bool sys4_text_is_sjis = false;
++
+ char *sjis_char2unicode(const char *_src, int *dst)
+ {
++	if (sys4_text_is_sjis)
++		return sjis_char2unicode_sjis(_src, dst);
+ 	const uint8_t *src = (const uint8_t*)_src;
+ 	if (*src <= 0x7f) {
+ 		*dst = *src;
+ 		return (char*)src + 1;
+ 	}
++	uint8_t b1 = *src;
++	uint8_t b2 = *(src + 1);
++	// CN fix: the game engine emits full-width forms (０-９ Ａ-ｚ ％ ／) as SJIS
++	// codes at runtime; the GBK table would misread them as rare hanzi
++	// (0x8250 -> 侾). SJIS wins ONLY inside the U+FF01-FF5E full-width block:
++	// a scan of all 95223 game messages found exactly 1 real collision with
++	// this rule (値 -> ｎ); broader rules hijack real hanzi (e.g. 铠 -> ⅹ)
++	// or the 0x30FB "invalid" filler positions.
++	bool sjis_valid_fb = (b1 >= 0x81 && b1 <= 0x9f) || (b1 >= 0xe0 && b1 <= 0xfc);
++	if (sjis_valid_fb && b2 >= 0x40 && b2 <= 0xfc && b2 != 0x7f) {
++		int sjis_ucs = s2u[b1 - 0x80][b2 - 0x40];
++		if (sjis_ucs >= 0xFF01 && sjis_ucs <= 0xFF5E) {
++			*dst = sjis_ucs;
++			return (char*)src + 2;
++		}
++	}
++	if (b1 >= 0x81 && b1 <= 0xfe && b2 >= 0x40 && b2 <= 0xfe && b2 != 0x7f) {
++		int col = b2 - 0x40 - (b2 > 0x7f ? 1 : 0);
++		uint16_t ucs = gbk_to_ucs2[b1 - 0x81][col];
++		if (ucs != 0) {
++			*dst = (int)ucs;
++			return (char*)src + 2;
++		}
++	}
++	if (*src <= 0x7f) {
++		*dst = *src;
++		return (char*)src + 1;
++	}
+ 
+ 	if (*src >= 0xa0 && *src <= 0xdf) {
+ 		*dst = 0xff60 + *src - 0xa0;
+@@ -71,7 +106,142 @@ char *sjis_char2unicode(const char *_src, int *dst)
+ 	return (char*)src + 2;
+ }
+ 
+-char *sjis2utf(const char *_src, size_t len) {
++/*
++ * Decode one character as genuine Shift-JIS (original behavior).
++ *
++ * Used for structured Japanese resources (MonsterInfo.txt, .s3de, .pms ...)
++ * whose parsers match Japanese keywords - reading them through the GBK table
++ * turns kana into rare hanzi and makes the parsers fail.
++ */
++char *sjis_char2unicode_sjis(const char *_src, int *dst)
++{
++	const uint8_t *src = (const uint8_t*)_src;
++	if (*src <= 0x7f) {
++		*dst = *src;
++		return (char*)src + 1;
++	}
++	if (*src >= 0xa0 && *src <= 0xdf) {
++		*dst = 0xff60 + *src - 0xa0;
++		return (char*)src + 1;
++	}
++	if (*src < 0x81 || (*src > 0x9f && *src < 0xe0) || *src > 0xfc) {
++		*dst = '?';
++		return (char*)src + 1;
++	}
++
++	// guard against invalid byte sequence
++	int c = *(src+1);
++	if (c < 0x40 || c == 0x7f || c > 0xfc) {
++		*dst = '?';
++		return (char*)src + 1;
++	}
++
++	*dst = s2u[*src - 0x80][*(src+1) - 0x40];
++	return (char*)src + 2;
++}
++
++/*
++ * Decode one character with the GBK table only (SJIS as fallback).
++ *
++ * Used for file names: the CN Android ports are installed from archives that
++ * Windows extracted with the GBK codepage, so the name on disk is the GBK
++ * reading of the original SJIS bytes. Using the mixed display decoder here
++ * produced names like "婄ＣＧ" that do not exist on disk ("婄俠俧").
++ */
++char *sjis_char2unicode_gbk(const char *_src, int *dst)
++{
++	const uint8_t *src = (const uint8_t*)_src;
++	if (*src <= 0x7f) {
++		*dst = *src;
++		return (char*)src + 1;
++	}
++	uint8_t b1 = *src;
++	uint8_t b2 = *(src + 1);
++	if (b1 >= 0x81 && b1 <= 0xfe && b2 >= 0x40 && b2 <= 0xfe && b2 != 0x7f) {
++		int col = b2 - 0x40 - (b2 > 0x7f ? 1 : 0);
++		uint16_t ucs = gbk_to_ucs2[b1 - 0x81][col];
++		if (ucs != 0) {
++			*dst = (int)ucs;
++			return (char*)src + 2;
++		}
++	}
++	return sjis_char2unicode_sjis(_src, dst);
++}
++
++/*
++ * Lazy set of "kana read through the GBK table" characters.
++ *
++ * Shift-JIS kana bytes decoded as GBK become a specific set of rare hanzi
++ * (モンスター -> 儌儞僗僞乕). Real Chinese text contains essentially none of
++ * them, so their share in a string tells us whether it is really Shift-JIS.
++ */
++static bool kana_mojibake_ready = false;
++static uint8_t kana_mojibake[0x10000 / 8];
++
++static void kana_mojibake_init(void)
++{
++	if (kana_mojibake_ready)
++		return;
++	kana_mojibake_ready = true;
++	for (int b1 = 0x81; b1 <= 0x83; b1++) {
++		for (int b2 = 0x40; b2 <= 0xfe; b2++) {
++			if (b2 == 0x7f)
++				continue;
++			int sjis_ucs = s2u[b1 - 0x80][b2 - 0x40];
++			// Only the SJIS kana block can produce kana mojibake.
++			if (sjis_ucs < 0x3040 || sjis_ucs > 0x30ff)
++				continue;
++			int col = b2 - 0x40 - (b2 > 0x7f ? 1 : 0);
++			if (col < 0 || col >= 190)
++				continue;
++			uint16_t ucs = gbk_to_ucs2[b1 - 0x81][col];
++			if (ucs)
++				kana_mojibake[ucs >> 3] |= 1 << (ucs & 7);
++		}
++	}
++}
++
++static bool is_kana_mojibake(int ucs)
++{
++	return ucs > 0 && ucs < 0x10000 && (kana_mojibake[ucs >> 3] & (1 << (ucs & 7)));
++}
++
++/*
++ * Decide whether a byte string is genuine Shift-JIS Japanese rather than GBK
++ * Chinese. A quarter of the double byte characters being kana-mojibake is a
++ * very strong signal (Japanese dialogue is full of kana; Chinese text of the
++ * CN ports has none).
++ */
++static bool sjis_string_is_japanese(const char *_src)
++{
++	kana_mojibake_init();
++	const uint8_t *src = (const uint8_t*)_src;
++	int total = 0, kana = 0;
++	while (*src) {
++		if (*src <= 0x7f) {
++			src++;
++			continue;
++		}
++		uint8_t b1 = *src, b2 = *(src + 1);
++		if (!b2)
++			break;
++		if (b1 >= 0x81 && b1 <= 0xfe && b2 >= 0x40 && b2 <= 0xfe && b2 != 0x7f) {
++			int col = b2 - 0x40 - (b2 > 0x7f ? 1 : 0);
++			uint16_t ucs = gbk_to_ucs2[b1 - 0x81][col];
++			total++;
++			if (ucs && is_kana_mojibake(ucs))
++				kana++;
++			src += 2;
++		} else {
++			src++;
++		}
++	}
++	return total >= 2 && kana * 4 >= total;
++}
++
++static char *sjis2utf_conv(const char *_src, size_t len,
++                           char *(*charfn)(const char*, int*))
++{
+ 	if (!len)
+ 		len = strlen(_src);
+ 	const uint8_t *src = (uint8_t*)_src;
+@@ -80,7 +250,7 @@ char *sjis2utf(const char *_src, size_t len) {
+ 
+ 	while (*src) {
+ 		int c;
+-		src = (uint8_t*)sjis_char2unicode((const char*)src, &c);
++		src = (uint8_t*)charfn((const char*)src, &c);
+ 
+ 		if (c <= 0x7f) {
+ 			*dstp++ = c;
+@@ -97,6 +267,27 @@ char *sjis2utf(const char *_src, size_t len) {
+ 	return (char*)dst;
+ }
+ 
++/*
++ * General conversion (display text and structured resources). Strings that
++ * are actually Shift-JIS are decoded as such; everything else (the GBK data
++ * of the Chinese ports) uses the hybrid decoder above.
++ */
++char *sjis2utf(const char *_src, size_t len) {
++	if (sjis_string_is_japanese(_src))
++		return sjis2utf_conv(_src, len, sjis_char2unicode_sjis);
++	return sjis2utf_conv(_src, len, sjis_char2unicode);
++}
++
++/* Force genuine Shift-JIS decoding. */
++char *sjis2utf_sjis(const char *_src, size_t len) {
++	return sjis2utf_conv(_src, len, sjis_char2unicode_sjis);
++}
++
++/* Force GBK decoding (file names; matches the on-disk GBK reading). */
++char *sjis2utf_gbk(const char *_src, size_t len) {
++	return sjis2utf_conv(_src, len, sjis_char2unicode_gbk);
++}
++
+ static int unicode_to_sjis(int u) {
+ 	for (int b1 = 0x81; b1 <= 0xff; b1++) {
+ 		if (b1 >= 0xa0 && b1 <= 0xdf)
+@@ -109,6 +300,21 @@ static int unicode_to_sjis(int u) {
+ 	return 0;
+ }
+ 
++/* Binary search the reverse GBK table (sorted by UCS). */
++static int unicode_to_gbk(int u) {
++	int lo = 0, hi = UCS2_TO_GBK_COUNT - 1;
++	while (lo <= hi) {
++		int mid = (lo + hi) / 2;
++		if (ucs2_to_gbk[mid].ucs == u)
++			return ucs2_to_gbk[mid].gbk;
++		if (ucs2_to_gbk[mid].ucs < u)
++			lo = mid + 1;
++		else
++			hi = mid - 1;
++	}
++	return 0;
++}
++
+ char *utf2sjis(const char *_src, size_t len) {
+ 	if (!len)
+ 		len = strlen(_src);
+@@ -139,6 +345,11 @@ char *utf2sjis(const char *_src, size_t len) {
+ 			*dstp++ = u - 0xff60 + 0xa0;
+ 		} else {
+ 			int c = unicode_to_sjis(u);
++			if (!c)
++				// CN fix: hanzi not in SJIS may exist in GBK (e.g. 汉 in
++				// 汉化版 file names). Emit the GBK double-byte code so
++				// file lookups match the on-disk names.
++				c = unicode_to_gbk(u);
+ 			if (c) {
+ 				*dstp++ = c >> 8;
+ 				*dstp++ = c & 0xff;
+@@ -151,11 +362,52 @@ char *utf2sjis(const char *_src, size_t len) {
+ 	return (char*)dst;
+ }
+ 
++/* UTF-8 -> GBK bytes (SJIS as fallback). Inverse of sjis2utf_gbk(). */
++char *utf2gbk(const char *_src, size_t len) {
++	if (!len)
++		len = strlen(_src);
++	const uint8_t *src = (uint8_t*)_src;
++	uint8_t* dst = malloc(len * 2 + 1);
++	uint8_t* dstp = dst;
++
++	while (*src) {
++		if (*src <= 0x7f) {
++			*dstp++ = *src++;
++			continue;
++		}
++
++		int u;
++		if (*src <= 0xdf) {
++			u = (src[0] & 0x1f) << 6 | (src[1] & 0x3f);
++			src += 2;
++		} else if (*src <= 0xef) {
++			u = (src[0] & 0xf) << 12 | (src[1] & 0x3f) << 6 | (src[2] & 0x3f);
++			src += 3;
++		} else {
++			*dstp++ = '?';
++			do src++; while ((*src & 0xc0) == 0x80);
++			continue;
++		}
++
++		int c = unicode_to_gbk(u);
++		if (!c)
++			c = unicode_to_sjis(u);
++		if (c) {
++			*dstp++ = c >> 8;
++			*dstp++ = c & 0xff;
++		} else {
++			*dstp++ = '?';
++		}
++	}
++	*dstp = '\0';
++	return (char*)dst;
++}
++
+ /* src 内に半角カナもしくはASCII文字があるかどうか */
+ bool sjis_has_hankaku(const char *_src) {
+ 	const uint8_t *src = (uint8_t*)_src;
+ 	while(*src) {
+-		if (SJIS_2BYTE(*src)) {
++		if (SJIS_2BYTE(*src) && src[1]) {
+ 			src++;
+ 		} else {
+ 			return true;
+@@ -183,7 +435,7 @@ int sjis_count_char(const char *_src) {
+ 	int c = 0;
+ 
+ 	while(*src) {
+-		if (SJIS_2BYTE(*src)) {
++		if (SJIS_2BYTE(*src) && src[1]) {
+ 			src++;
+ 		}
+ 		c++; src++;
+@@ -194,7 +446,7 @@ int sjis_count_char(const char *_src) {
+ // Replaces lowercase letters with uppercase letters and slashes with backslashes.
+ void sjis_normalize_path(char *_src) {
+ 	for (uint8_t *src = (uint8_t*)_src; *src; src++) {
+-		if (SJIS_2BYTE(*src)) {
++		if (SJIS_2BYTE(*src) && src[1]) {
+ 			src++;
+ 		} else if ('a' <= *src && *src <= 'z') {
+ 			*src -= 'a' - 'A';

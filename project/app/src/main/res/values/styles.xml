@@ -1,7 +1,46 @@
-<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Base application theme. -->
-    <style name="AppTheme" parent="android:Theme.NoTitleBar.Fullscreen">
-        <!-- Customize your theme here. -->
+    <style name="Theme.XSystem4.Base" parent="Theme.Material3.DayNight">
+        <item name="colorPrimary">@color/md3_primary</item>
+        <item name="colorOnPrimary">@color/md3_on_primary</item>
+        <item name="colorPrimaryContainer">@color/md3_secondary_container</item>
+        <item name="colorOnPrimaryContainer">@color/md3_on_secondary_container</item>
+        <item name="colorSecondary">@color/md3_primary</item>
+        <item name="colorOnSecondary">@color/md3_on_primary</item>
+        <item name="colorSecondaryContainer">@color/md3_secondary_container</item>
+        <item name="colorOnSecondaryContainer">@color/md3_on_secondary_container</item>
+        <item name="colorTertiary">@color/md3_primary</item>
+        <item name="colorOnTertiary">@color/md3_on_primary</item>
+        <item name="colorTertiaryContainer">@color/md3_secondary_container</item>
+        <item name="colorOnTertiaryContainer">@color/md3_on_secondary_container</item>
+        <item name="colorSurfaceContainerLowest">@color/md3_surface</item>
+        <item name="colorSurfaceContainerLow">@color/md3_container</item>
+        <item name="colorSurfaceContainerHighest">@color/md3_container_high</item>
+        <item name="colorSurfaceBright">@color/md3_container_high</item>
+        <item name="colorSurfaceDim">@color/md3_container</item>
+        <item name="colorSurfaceInverse">@color/md3_on_surface</item>
+        <item name="colorOnSurfaceInverse">@color/md3_surface</item>
+        <item name="colorPrimaryInverse">@color/md3_on_primary</item>
+        <item name="colorSurface">@color/md3_surface</item>
+        <item name="colorSurfaceVariant">@color/md3_container_high</item>
+        <item name="colorSurfaceContainer">@color/md3_container</item>
+        <item name="colorSurfaceContainerHigh">@color/md3_container_high</item>
+        <item name="colorOnSurface">@color/md3_on_surface</item>
+        <item name="colorOnSurfaceVariant">@color/md3_on_surface_variant</item>
+        <item name="colorOutline">@color/md3_on_surface_variant</item>
+        <item name="colorOutlineVariant">@color/md3_outline_variant</item>
+        <item name="android:colorBackground">@color/md3_surface</item>
+        <item name="colorOnBackground">@color/md3_on_surface</item>
+        <item name="android:windowBackground">@color/md3_surface</item>
+        <item name="android:statusBarColor">@android:color/black</item>
+        <item name="android:navigationBarColor">@android:color/black</item>
+    </style>
+    <style name="Theme.XSystem4" parent="Theme.XSystem4.Base" />
+    <style name="Theme.XSystem4.Launcher" parent="Theme.XSystem4">
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+    </style>
+    <style name="AppTheme" parent="Theme.XSystem4.Launcher">
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowBackground">@android:color/black</item>
     </style>
 </resources>

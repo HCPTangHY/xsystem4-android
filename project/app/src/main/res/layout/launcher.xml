@@ -1,17 +1,38 @@
-<?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:orientation="vertical"
-    android:layout_width="fill_parent"
-    android:layout_height="fill_parent">
-    <ListView android:id="@+id/list"
-        android:layout_width="fill_parent"
-        android:layout_height="fill_parent" />
-    <ScrollView android:id="@+id/empty"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content">
-        <TextView android:id="@+id/usage"
-            android:layout_width="fill_parent"
-            android:layout_height="wrap_content"
-            android:padding="20dp" />
-    </ScrollView>
+    android:background="?attr/colorSurface" android:layout_width="match_parent" android:layout_height="match_parent">
+    <LinearLayout android:orientation="horizontal" android:gravity="center_vertical" android:paddingHorizontal="24dp"
+        android:paddingVertical="16dp" android:layout_width="match_parent" android:layout_height="wrap_content">
+        <TextView android:text="@string/md3_library" android:textAppearance="?attr/textAppearanceHeadlineMedium"
+            android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/import_game" android:text="@string/md3_import"
+            android:layout_width="wrap_content" android:layout_height="wrap_content" />
+    </LinearLayout>
+    <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
+        <ListView android:id="@+id/list" android:divider="@null" android:dividerHeight="8dp"
+            android:listSelector="@android:color/transparent"
+            android:clipToPadding="false" android:paddingHorizontal="16dp" android:paddingBottom="24dp"
+            android:layout_width="match_parent" android:layout_height="match_parent" />
+        <ScrollView android:id="@+id/empty" android:fillViewport="true"
+            android:layout_width="match_parent" android:layout_height="match_parent">
+            <LinearLayout android:orientation="vertical" android:padding="24dp" android:gravity="center_vertical"
+                android:layout_width="match_parent" android:layout_height="wrap_content">
+                <TextView android:text="@string/md3_empty" android:textAppearance="?attr/textAppearanceHeadlineSmall"
+                    android:layout_width="match_parent" android:layout_height="wrap_content" />
+                <TextView android:id="@+id/usage" android:textAppearance="?attr/textAppearanceBodyLarge"
+                    android:textColor="?attr/colorOnSurfaceVariant" android:paddingTop="16dp"
+                    android:layout_width="match_parent" android:layout_height="wrap_content" />
+            </LinearLayout>
+        </ScrollView>
+    </FrameLayout>
+    <LinearLayout android:orientation="horizontal" android:gravity="center"
+        android:paddingHorizontal="16dp" android:paddingBottom="8dp"
+        android:layout_width="match_parent" android:layout_height="wrap_content">
+        <com.google.android.material.button.MaterialButton android:id="@+id/library_help"
+            style="@style/Widget.Material3.Button.TextButton" android:text="@string/md3_help"
+            android:minHeight="48dp" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/library_licenses"
+            style="@style/Widget.Material3.Button.TextButton" android:text="@string/md3_licenses"
+            android:minHeight="48dp" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+    </LinearLayout>
 </LinearLayout>

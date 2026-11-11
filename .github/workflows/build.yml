@@ -19,9 +19,24 @@ jobs:
     - name: Install Deps
       run: sudo apt-get update && sudo apt-get install -y ninja-build
 
+    - name: Apply engine patches (Sengoku Rance CN HLL fixes)
+      run: |
+        cd $GITHUB_WORKSPACE/xsystem4
+        for p in ../patches/*.patch; do
+          echo "Applying $p"
+          git apply "$p"
+        done
+
     - name: Apply GBK Patch
       run: |
         cd $GITHUB_WORKSPACE/xsystem4/subprojects/libsys4
+
+        # 0. CN encoding fixes: three decoding semantics (display text,
+        #    structured resources, file names) + tolerant file lookup.
+        for p in ../../../patches/libsys4/*.patch; do
+          echo "Applying $p"
+          git apply "$p"
+        done
 
         # 1. Generate static GBK to UCS2 lookup table (bypassing Android bionic iconv limitations)
         python3 -c '
@@ -41,70 +56,69 @@ jobs:
             f.write("};\n")
         '
 
-        # 2. Expand 2-byte boundary
-        sed -i 's/#define SJIS_2BYTE(b) ( ((b) & 0xe0) == 0x80 || ((b) & 0xe0) == 0xe0 )/#define SJIS_2BYTE(b) (((uint8_t)(b) >= 0x81 \&\& (uint8_t)(b) <= 0xfe))/' include/system4/utfsjis.h
-
-        # 3. Patch utfsjis.c to directly use the static GBK lookup table
+        # 2. Generate the reverse table (UCS2 -> GBK), needed to turn file names
+        #    back into the on-disk GBK reading. (The SJIS_2BYTE boundary and the
+        #    utfsjis.c decoders now come from patches/libsys4/0001-cn-encoding.patch.)
         python3 -c '
-        with open("src/utfsjis.c", "r") as f:
-            c = f.read()
-        target = "char *sjis_char2unicode(const char *_src, int *dst)\n{\n\tconst uint8_t *src = (const uint8_t*)_src;"
-        replacement = """#include "gbk_table.h"
-
-        char *sjis_char2unicode(const char *_src, int *dst)
-        {
-        \tconst uint8_t *src = (const uint8_t*)_src;
-        \tif (*src <= 0x7f) {
-        \t\t*dst = *src;
-        \t\treturn (char*)src + 1;
-        \t}
-        \tuint8_t b1 = *src;
-        \tuint8_t b2 = *(src + 1);
-        \tif (b1 >= 0x81 && b1 <= 0xfe && b2 >= 0x40 && b2 <= 0xfe && b2 != 0x7f) {
-        \t\tint col = b2 - 0x40 - (b2 > 0x7f ? 1 : 0);
-        \t\tuint16_t ucs = gbk_to_ucs2[b1 - 0x81][col];
-        \t\tif (ucs != 0) {
-        \t\t\t*dst = (int)ucs;
-        \t\t\treturn (char*)src + 2;
-        \t\t}
-        \t}"""
-        assert target in c, "target in utfsjis.c not found"
-        c = c.replace(target, replacement, 1)
-        with open("src/utfsjis.c", "w") as f:
-            f.write(c)
+        import re
+        with open("src/gbk_table.h", "r") as f:
+            text = f.read()
+        m = re.search(r"gbk_to_ucs2\[126\]\[190\] = \{(.*?)\};", text, re.S)
+        rows = re.findall(r"\{([^{}]*)\}", m.group(1))
+        assert len(rows) == 126, "gbk_table.h malformed"
+        rev = {}
+        for b1i, row in enumerate(rows):
+            for b2i, v in enumerate([x.strip() for x in row.split(",") if x.strip()]):
+                ucs = int(v, 0)
+                if ucs == 0:
+                    continue
+                b2 = b2i + 0x40
+                if b2 > 0x7e:
+                    b2 += 1
+                rev.setdefault(ucs, ((b1i + 0x81) << 8) | b2)
+        out = ["/* Auto-generated reverse GBK table (UCS2 -> GBK code). */",
+               "#ifndef GBK_REV_TABLE_H", "#define GBK_REV_TABLE_H", "",
+               "struct ucs2_gbk { uint16_t ucs; uint16_t gbk; };", "",
+               "static const struct ucs2_gbk ucs2_to_gbk[%d] = {" % len(rev)]
+        for ucs in sorted(rev):
+            out.append("\t{0x%04x, 0x%04x}," % (ucs, rev[ucs]))
+        out += ["};", "#define UCS2_TO_GBK_COUNT %d" % len(rev), "", "#endif"]
+        with open("src/gbk_rev_table.h", "w") as f:
+            f.write("\n".join(out) + "\n")
         '
 
-        # 4. Patch text.c to bypass AFA.fnl bitmap font and force HanaMinA TTF
-        cd $GITHUB_WORKSPACE/xsystem4
+        # 3.5 Download CEFFontsCJK font (full GBK + full-width forms coverage)
+        cd $GITHUB_WORKSPACE/xsystem4/fonts
+        curl -sL https://github.com/Partyb0ssishere/cef-fonts-cjk/releases/download/v2.25/CEFFontsCJK-Regular.ttf -o CEFFontsCJK-Regular.ttf
+        curl -sL https://raw.githubusercontent.com/Partyb0ssishere/cef-fonts-cjk/main/LICENSE -o CEFFontsCJK.license
+
+        # 4. Noto fallback fonts (glyphs CEFFontsCJK lacks); the engine patch
+        #    lists their sources and checksums in fonts/NotoFallback.sources.json.
+        #    The CN text.c/input.c changes are part of the engine patch itself.
         python3 -c '
-        with open("src/text.c", "r") as f:
-            c = f.read()
-        c = c.replace(
-            "#define DEFAULT_FONT_GOTHIC \"fonts/VL-Gothic-Regular.ttf\"",
-            "#define DEFAULT_FONT_GOTHIC \"fonts/HanaMinA.ttf\""
-        )
-        target = "static struct font *get_font(unsigned face)\n{\n\tif (face > 255) {"
-        replacement = "static struct font *get_font(unsigned face)\n{\n\treturn font_ttf[FONT_MINCHO];\n\tif (face > 255) {"
-        assert target in c, "target in text.c not found"
-        c = c.replace(target, replacement, 1)
-        with open("src/text.c", "w") as f:
-            f.write(c)
+        import hashlib, json, urllib.request
+        files = json.load(open("NotoFallback.sources.json"))["files"]
+        for name, info in files.items():
+            data = urllib.request.urlopen(info["url"]).read()
+            digest = hashlib.sha256(data).hexdigest()
+            if digest != info["sha256"]:
+                print("WARNING: %s sha256 %s differs from %s" % (name, digest, info["sha256"]))
+            open(name, "wb").write(data)
+            print("fetched", name, len(data))
         '
 
-        # 5. Patch input.c to lock mouse_focus on Android so hover tooltips always work
-        python3 -c '
-        with open("src/input.c", "r") as f:
-            c = f.read()
-        target = "case SDL_WINDOWEVENT_LEAVE:\n\t\tmouse_focus = false;\n\t\tbreak;"
-        replacement = "case SDL_WINDOWEVENT_LEAVE:\n#ifndef __ANDROID__\n\t\tmouse_focus = false;\n#endif\n\t\tbreak;"
-        assert target in c, "target in input.c not found"
-        c = c.replace(target, replacement, 1)
-        with open("src/input.c", "w") as f:
-            f.write(c)
-        '
+    - name: Cache ffmpeg
+      uses: actions/cache@v4
+      with:
+        # The movie backend's ffmpeg takes a while to build; the libs only
+        # change when the build script does.
+        path: ffmpeg
+        key: ffmpeg-${{ runner.os }}-${{ hashFiles('tools/build_ffmpeg_android.sh') }}
 
     - name: Native Build
-      run: ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME ./build-shared-libs.sh
+      run: |
+        cd $GITHUB_WORKSPACE
+        ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME ./build-shared-libs.sh
 
     - name: Setup Fixed Debug Keystore
       run: |
